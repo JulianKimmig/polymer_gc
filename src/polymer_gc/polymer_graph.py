@@ -43,7 +43,7 @@ class SimSEC(secanalysis.sec_formats.base.SECDataBase):
         random_state: Optional[int | np.random.Generator] = None,
     ) -> "SimSEC":
         """Build a skewed SEC trace whose calculated Mn/Mw match the targets."""
-        if Mw <= Mn:
+        if Mw < Mn:
             raise ValueError("Mw must exceed Mn.")
 
         a, b = calibration_params or cls.DEFAULT_CALIBRATION_PARAMS

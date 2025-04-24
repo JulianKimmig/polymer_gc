@@ -5,10 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "captum>=0.7.0",
     "matplotlib>=3.10.1",
+    "networkx>=3.4.2",
+    "numba>=0.61.2",
     "numpy>=2.2.4",
+    "pybind11>=2.13.6",
+    "rdkit>=2024.9.6",
     "scipy>=1.15.2",
     "secanalysis>=0.1.0",
+    "tqdm>=4.67.1",
 ]
 
 
