@@ -36,7 +36,7 @@ class SimSEC(secanalysis.sec_formats.base.SECDataBase):
         calibration_params: Tuple[float, float] | None = None,
         noise_level: float = 0.0,
         baseline_level: float = 0.0,
-        smooth_sigma: float | None = 2.0,
+        smooth_sigma: float | None = 3.0,
         asymmetry: float = 0.0,
         max_iter: int = 10,
         tol: float = 0.005,
