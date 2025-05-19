@@ -385,7 +385,9 @@ def merge_linear_polymers_to_block(
                     or other inconsistencies are found.
     """
     if not polymer_graph_ensembles:
-        return PolyGraphEnsemble.from_lists(nodes=[], edges=[], monomers=[])
+        raise ValueError(
+            "Input list of PolyGraphEnsemble objects is empty. Cannot merge."
+        )
 
     if len(polymer_graph_ensembles) == 1:
         # If only one ensemble is provided, return it directly

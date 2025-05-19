@@ -99,6 +99,8 @@ class SimSEC(secanalysis.sec_formats.base.SECDataBase):
                 mn, mw = p["Mn"], p["Mw"]
                 return mn, mw
 
+            raise ValueError("Failed to simulate moments. Check the input parameters.")
+
         # --------------------------------------------------------------
         # Newton‑style parameter refinement (μ shifts Mn, σ tunes Mw/Mn)
         # --------------------------------------------------------------

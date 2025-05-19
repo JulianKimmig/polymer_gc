@@ -3,6 +3,7 @@ import numpy as np
 from typing import List, Optional, Any, Union, Tuple
 import networkx as nx
 from ..core.monomer import Monomer
+from .plot import plot_polygraph
 
 
 def make_nx_polygraph(g: "PolyGraph"):
@@ -27,7 +28,8 @@ class PolyGraph:
         # make self._nodes read only
         self._nodes.flags.writeable = False
 
-        self._edges = edges
+        self._edges = np.array(edges).astype(np.uint32)
+        
         # make self._edges read only
         self._edges.flags.writeable = False
 
@@ -69,8 +71,6 @@ class PolyGraph:
 
     ### magic method to display in jupyter notebook
     def _ipython_display_(self):
-        from .plot import plot_polygraph
-
         fig = plot_polygraph(self.nx_graph)
         fig.show()
         return fig
