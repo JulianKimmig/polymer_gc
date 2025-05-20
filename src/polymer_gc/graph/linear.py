@@ -2,40 +2,7 @@ from typing import List, Optional, Union
 from collections.abc import Callable
 import numpy as np
 from .datamodel import PolyGraphEnsemble, Monomer
-
-
-def make_unique_monomers(ex_monomers, created_nodes_list):
-    # Consolidate monomer list and update node indices if monomers are used multiple times.
-    # This ensures PolyGraphEnsemble uses a unique list of Monomer objects.
-
-    final_monomer_objects_map = {}  # Monomer object -> new unique index
-    for m_obj in (
-        ex_monomers
-    ):  # ex_monomers contains all start, main, end monomers as they were added
-        if m_obj not in final_monomer_objects_map:
-            final_monomer_objects_map[m_obj] = len(final_monomer_objects_map)
-
-    unique_monomer_list_final = list(final_monomer_objects_map.keys())
-
-    remapped_nodes_list = []
-    if not ex_monomers:  # Should not happen if we reached here, but defensive.
-        remapped_nodes_list = created_nodes_list  # all should be empty lists of nodes
-    else:
-        # Create a mapping array from old ex_monomers index to new unique_monomer_list_final index
-        old_idx_to_new_idx_map = np.array(
-            [final_monomer_objects_map[m_obj] for m_obj in ex_monomers], dtype=int
-        )
-
-        for g_nodes_old_indices in created_nodes_list:
-            if len(g_nodes_old_indices) > 0:
-                remapped_nodes_list.append(old_idx_to_new_idx_map[g_nodes_old_indices])
-            else:
-                remapped_nodes_list.append(
-                    np.array([], dtype=int)
-                )  # Keep empty node arrays empty
-    # --- End of Monomer Unification Block ---
-
-    return remapped_nodes_list, unique_monomer_list_final
+from .utils import make_unique_monomers
 
 
 def make_linear_polymer_graphs(
@@ -363,7 +330,6 @@ def make_linear_gradient_polymer(
 
 def merge_linear_polymers_to_block(
     polymer_graph_ensembles: List[PolyGraphEnsemble],
-    remove_overlapping_endgroups: bool = True,
 ) -> PolyGraphEnsemble:
     """
     Merges multiple linear polymer graph ensembles into a single ensemble of block copolymers.
@@ -462,79 +428,79 @@ def merge_linear_polymers_to_block(
                 segment_original_edges.copy()
             )  # Edges are 0-indexed for this segment
 
-            # --- Overlap removal logic (if not the very first segment being added) ---
-            if not is_first_segment_in_merge and remove_overlapping_endgroups:
-                # A. Check end of ACCUMULATED chain (if it exists)
-                if accumulated_nodes_temp_indices.size > 0:
-                    val_last_node_accumulated = accumulated_nodes_temp_indices[-1]
-                    if (
-                        np.sum(
-                            accumulated_nodes_temp_indices == val_last_node_accumulated
-                        )
-                        <= 2
-                    ):
-                        idx_of_last_node_accumulated = (
-                            accumulated_nodes_temp_indices.shape[0] - 1
-                        )
-                        accumulated_nodes_temp_indices = accumulated_nodes_temp_indices[
-                            :-1
-                        ]
-                        if (
-                            accumulated_edges.size > 0
-                        ):  # Ensure edges exist before filtering
-                            accumulated_edges = accumulated_edges[
-                                (
-                                    accumulated_edges[:, 0]
-                                    != idx_of_last_node_accumulated
-                                )
-                                & (
-                                    accumulated_edges[:, 1]
-                                    != idx_of_last_node_accumulated
-                                )
-                            ]
+            # # --- Overlap removal logic (if not the very first segment being added) ---
+            # if not is_first_segment_in_merge and remove_overlapping_endgroups:
+            #     # A. Check end of ACCUMULATED chain (if it exists)
+            #     if accumulated_nodes_temp_indices.size > 0:
+            #         val_last_node_accumulated = accumulated_nodes_temp_indices[-1]
+            #         if (
+            #             np.sum(
+            #                 accumulated_nodes_temp_indices == val_last_node_accumulated
+            #             )
+            #             <= 2
+            #         ):
+            #             idx_of_last_node_accumulated = (
+            #                 accumulated_nodes_temp_indices.shape[0] - 1
+            #             )
+            #             accumulated_nodes_temp_indices = accumulated_nodes_temp_indices[
+            #                 :-1
+            #             ]
+            #             if (
+            #                 accumulated_edges.size > 0
+            #             ):  # Ensure edges exist before filtering
+            #                 accumulated_edges = accumulated_edges[
+            #                     (
+            #                         accumulated_edges[:, 0]
+            #                         != idx_of_last_node_accumulated
+            #                     )
+            #                     & (
+            #                         accumulated_edges[:, 1]
+            #                         != idx_of_last_node_accumulated
+            #                     )
+            #                 ]
 
-                # B. Check start of CURRENT segment (if it exists)
-                if current_segment_nodes_temp_indices.size > 0:
-                    val_first_node_current_segment = current_segment_nodes_temp_indices[
-                        0
-                    ]
-                    if (
-                        np.sum(
-                            current_segment_nodes_temp_indices
-                            == val_first_node_current_segment
-                        )
-                        <= 2
-                    ):
-                        current_segment_nodes_temp_indices = (
-                            current_segment_nodes_temp_indices[1:]
-                        )
-                        if current_segment_edges.size > 0:  # Ensure edges exist
-                            # Filter out edges connected to original node 0 and decrement others
-                            current_segment_edges = current_segment_edges[
-                                (current_segment_edges[:, 0] != 0)
-                                & (current_segment_edges[:, 1] != 0)
-                            ]
-                            current_segment_edges = current_segment_edges - 1
-                            # Ensure valid indices after decrementing
-                            if (
-                                current_segment_nodes_temp_indices.size > 0
-                                and current_segment_edges.size > 0
-                            ):  # Guard against empty nodes/edges
-                                current_segment_edges = current_segment_edges[
-                                    np.all(current_segment_edges >= 0, axis=1)
-                                    & (
-                                        current_segment_edges[:, 0]
-                                        < current_segment_nodes_temp_indices.shape[0]
-                                    )
-                                    & (
-                                        current_segment_edges[:, 1]
-                                        < current_segment_nodes_temp_indices.shape[0]
-                                    )
-                                ]
-                            elif (
-                                current_segment_edges.size > 0
-                            ):  # Edges exist but nodes became empty
-                                current_segment_edges = np.empty((0, 2), dtype=int)
+            #     # B. Check start of CURRENT segment (if it exists)
+            #     if current_segment_nodes_temp_indices.size > 0:
+            #         val_first_node_current_segment = current_segment_nodes_temp_indices[
+            #             0
+            #         ]
+            #         if (
+            #             np.sum(
+            #                 current_segment_nodes_temp_indices
+            #                 == val_first_node_current_segment
+            #             )
+            #             <= 2
+            #         ):
+            #             current_segment_nodes_temp_indices = (
+            #                 current_segment_nodes_temp_indices[1:]
+            #             )
+            #             if current_segment_edges.size > 0:  # Ensure edges exist
+            #                 # Filter out edges connected to original node 0 and decrement others
+            #                 current_segment_edges = current_segment_edges[
+            #                     (current_segment_edges[:, 0] != 0)
+            #                     & (current_segment_edges[:, 1] != 0)
+            #                 ]
+            #                 current_segment_edges = current_segment_edges - 1
+            #                 # Ensure valid indices after decrementing
+            #                 if (
+            #                     current_segment_nodes_temp_indices.size > 0
+            #                     and current_segment_edges.size > 0
+            #                 ):  # Guard against empty nodes/edges
+            #                     current_segment_edges = current_segment_edges[
+            #                         np.all(current_segment_edges >= 0, axis=1)
+            #                         & (
+            #                             current_segment_edges[:, 0]
+            #                             < current_segment_nodes_temp_indices.shape[0]
+            #                         )
+            #                         & (
+            #                             current_segment_edges[:, 1]
+            #                             < current_segment_nodes_temp_indices.shape[0]
+            #                         )
+            #                     ]
+            #                 elif (
+            #                     current_segment_edges.size > 0
+            #                 ):  # Edges exist but nodes became empty
+            #                     current_segment_edges = np.empty((0, 2), dtype=int)
 
             # --- Concatenate nodes and edges ---
             node_index_offset = accumulated_nodes_temp_indices.shape[0]

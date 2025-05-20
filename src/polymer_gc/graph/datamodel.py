@@ -29,7 +29,7 @@ class PolyGraph:
         self._nodes.flags.writeable = False
 
         self._edges = np.array(edges).astype(np.uint32)
-        
+
         # make self._edges read only
         self._edges.flags.writeable = False
 

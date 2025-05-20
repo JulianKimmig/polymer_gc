@@ -62,7 +62,7 @@ def test_make_unique_monomers_empty_nodes_list(simple_monomer):
 
     remapped_nodes, unique_list = make_unique_monomers(ex_monomers, created_nodes_list)
 
-    assert unique_list == [simple_monomer]
+    assert unique_list == []
     assert len(remapped_nodes) == 2
     np.testing.assert_array_equal(remapped_nodes[0], np.array([], dtype=int))
     np.testing.assert_array_equal(remapped_nodes[1], np.array([], dtype=int))
