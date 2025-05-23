@@ -4,9 +4,10 @@ import pandas as pd
 from typing import Optional, Tuple
 from scipy.ndimage import gaussian_filter1d
 import numpy as np
+from secanalysis.sec_formats.base import SECDataBase
 
 
-class SimSEC(secanalysis.sec_formats.base.SECDataBase):
+class SimSEC(SECDataBase):
     DEFAULT_CALIBRATION_PARAMS: Tuple[float, float] = (-0.45, 10.5)
 
     def __init__(
@@ -17,6 +18,7 @@ class SimSEC(secanalysis.sec_formats.base.SECDataBase):
     ) -> None:
         super().__init__(raw_data)
 
+        self.calibration_params = calibration_params
         a, b = calibration_params or self.DEFAULT_CALIBRATION_PARAMS
         # The calibration function must vectorise over *v* for bulk operations
         self.set_calibration_function(lambda v, _a=a, _b=b: _a * v + _b, (a, b))
@@ -99,7 +101,7 @@ class SimSEC(secanalysis.sec_formats.base.SECDataBase):
                 mn, mw = p["Mn"], p["Mw"]
                 return mn, mw
 
-            raise ValueError("Failed to simulate moments. Check the input parameters.")
+            return 0.0, 0.0
 
         # --------------------------------------------------------------
         # Newton‑style parameter refinement (μ shifts Mn, σ tunes Mw/Mn)
@@ -120,6 +122,11 @@ class SimSEC(secanalysis.sec_formats.base.SECDataBase):
             ratio_tgt = Mw / Mn
             ratio_est = Mw_est / Mn_est
             sigma *= np.sqrt(ratio_tgt / ratio_est)
+        else:
+            raise ValueError(
+                f"Failed to converge after {max_iter} iterations. "
+                f"Last error: Mn = {err_Mn:.3g}, Mw = {err_Mw:.3g}"
+            )
 
         # --------------------------------------------------------------
         # Final full‑size simulation with converged parameters

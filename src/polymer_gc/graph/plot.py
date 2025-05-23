@@ -30,10 +30,10 @@ def plot_polygraph(G: nx.Graph):
 
     G.add_edge(gns, gne)
 
-    # pos = nx.circular_layout(G)
+    pos = nx.circular_layout(G)
     pos = nx.spring_layout(
         G,
-        # pos=pos,
+        pos=pos,
         iterations=500,
         k=k,
         seed=42,

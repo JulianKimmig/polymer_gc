@@ -13,6 +13,7 @@ def make_linear_polymer_graphs(
     seed: Optional[int] = None,
     startgroup: Optional[Monomer] = None,
     endgroup: Optional[Monomer] = None,
+    max_length: int = 400,
 ) -> PolyGraphEnsemble:
     """
     Generate random linear polymer graphs with approximate target mass(es).
@@ -140,7 +141,7 @@ def make_linear_polymer_graphs(
 
     # Determine max_length for initial chain generation based on the largest adjusted target mass
     max_chain_mass = np.max(adjusted_target_masses)
-    max_length = int(np.ceil(max_chain_mass / min_actual_monomer_mass))
+    max_length = min(max_length, int(np.ceil(max_chain_mass / min_actual_monomer_mass)))
     if (
         max_length == 0 and max_chain_mass > 0
     ):  # Ensure max_length is at least 1 if target mass > 0
@@ -253,8 +254,8 @@ def make_linear_polymer_graphs(
         # Startgroup is index 0 in ex_monomers
         created_nodes_list = [np.insert(g + 1, 0, 0) for g in created_nodes_list]
         end_group_idx_in_ex_monomers += (
-            1
-        )  # Shift endgroup index if startgroup is present
+            1  # Shift endgroup index if startgroup is present
+        )
 
     if endgroup is not None:
         # Append endgroup index to each node list
