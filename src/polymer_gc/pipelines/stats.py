@@ -269,12 +269,10 @@ def plot_true_vs_pred(
 
     for sk in subset_keys + ["all"]:
         for i, k in enumerate(target_keys):
+            _y, _yp = fys[sk][:, i], fypreds[sk][:, i]
             # hexin
             plt.figure()
-            plt.hexbin(
-                fys[sk][:, i],
-                fypreds[sk][:, i],
-            )
+            plt.hexbin(_y, _yp)
             plt.xlabel(f"True {k}")
             plt.ylabel(f"Predicted {k}")
             plt.title(f"Hexbin plot of true vs predicted {k}")
@@ -282,11 +280,43 @@ def plot_true_vs_pred(
             plt.gca().collections[0].colorbar.set_label("Counts")
             plt.savefig(f"{path}/hexbin_true_vs_pred_{k}_{sk}.png")
             plt.close()
-            # # scatter
-            # plt.figure()
-            # plt.scatter(
-            #     ys[:, i],
-            #     ypreds[:, i],
-            #     s=1000 / np.sqrt(ys.shape[0]),
-            #     alpha=0.5,
-            # )
+
+            # scatter
+            plt.figure()
+            plt.scatter(
+                _y,
+                _yp,
+                s=min(10, 1000 / np.sqrt(_y.shape[0])),
+                alpha=0.5,
+            )
+            plt.xlabel(f"True {k}")
+            plt.ylabel(f"Predicted {k}")
+            plt.title(f"Scatter plot of true vs predicted {k}")
+
+            rmse = np.sqrt(np.mean((_y - _yp) ** 2))
+            rsquared = np.corrcoef(_y, _yp)[0, 1] ** 2
+            mae = np.mean(np.abs(_y - _yp))
+
+            # add information box to the plot
+            textstr = f"RMSE: {rmse:.2f}\nR^2: {rsquared:.2f}\nMAE: {mae:.2f}"
+            props = dict(boxstyle="round", facecolor="wheat", alpha=0.5)
+            # place a text box in upper left in axes coords
+            plt.gca().text(
+                0.05,
+                0.95,
+                textstr,
+                transform=plt.gca().transAxes,
+                fontsize=14,
+                verticalalignment="top",
+                bbox=props,
+            )
+            plt.gca().set_aspect("equal", "datalim")
+
+            plt.savefig(f"{path}/scatter_true_vs_pred_{k}_{sk}.png")
+            plt.close()
+
+            if model.config.logits_output:
+                # plot each point as a gaussian with std
+                plt.figure()
+                plt.title(f"Gaussian plot of true vs predicted {k}")
+                
