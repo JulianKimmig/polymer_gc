@@ -8,7 +8,7 @@ from torch_geometric.data import Data, Dataset
 from typing import Dict, Generic, TypeVar
 import polymer_gc
 from hashlib import md5
-from polymer_gc.graph import make_linear_polymer_graphs
+
 from torch_geometric.io import fs
 import tempfile
 
@@ -159,11 +159,9 @@ class PolymerGraphDataset(Dataset, Generic[T]):
             # if all files exist, skip
             if all(osp.exists(targetfile) for targetfile in targetfiles):
                 continue
-            masses = entry.sec.sample(n=self.config.n_graphs)
-            if entry.architecture == "linear":
-                graphs = make_linear_polymer_graphs(masses, entry.monomers)
-            else:
-                raise ValueError(f"Architecture {entry.architecture} not supported.")
+
+            graphs = entry.make_graphs(n=self.config.n_graphs)
+
             for i, graph in enumerate(graphs):
                 targetfile = targetfiles[i]
                 smiles = [mono.smiles for mono in graph.monomers]
@@ -187,11 +185,16 @@ class PolymerGraphDataset(Dataset, Generic[T]):
                 data = Data(
                     x=torch.Tensor(graph.nodes).long(),
                     edge_index=torch.Tensor(graph.edges.T).long(),
-                    y=torch.Tensor(
-                        [getattr(entry, target) for target in self.config.targets]
-                    )
-                    .float()
-                    .reshape(1, -1),
+                    y=torch.cat(
+                        [
+                            torch.Tensor([getattr(entry, target)])
+                            .flatten()
+                            .float()
+                            .reshape(1, -1)
+                            for target in self.config.targets
+                        ],
+                        axis=1,
+                    ),
                     additional_features=additional_features,
                     _entryhash=entryhash,
                     smiles=smiles,

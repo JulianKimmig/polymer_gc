@@ -85,10 +85,10 @@ class LogitsOutput(nn.Module):
 
 
 class StandartScaler(nn.Module):
-    def __init__(self, mean=0, std=1, eps=1e-8):
+    def __init__(self, n, eps=1e-8):
         super().__init__()
-        self.register_buffer("mean", torch.tensor(mean))
-        self.register_buffer("std", torch.tensor(std))
+        self.register_buffer("mean", torch.zeros(n))
+        self.register_buffer("std", torch.ones(n))
         self.register_buffer("eps", torch.tensor(eps))
 
     def forward(self, x):
@@ -330,6 +330,18 @@ class PolyGCBaseModel(nn.Module):
             description="Number of layers in the MLP.",
             ge=0,
         )
+        validation_loss: Optional[Literal["mae", "mse", "rmse"]] = Field(
+            None,
+            description="Validation loss function to use. If None, the same loss function as training will be used.",
+        )
+        training_loss: Optional[Literal["mae", "mse", "rmse"]] = Field(
+            None,
+            description="Training loss function to use. If None, the default loss function will be used.",
+        )
+        test_loss: Optional[Literal["mae", "mse", "rmse"]] = Field(
+            None,
+            description="Test loss function to use. If None, the same loss function as training will be used.",
+        )
 
         @model_validator(mode="before")
         @classmethod
@@ -352,8 +364,9 @@ class PolyGCBaseModel(nn.Module):
         super().__init__()
         self.config = self.ModelConfig(**config) if isinstance(config, dict) else config
 
-        self.target_scaler = StandartScaler()
-        self.additional_inputs_scaler = StandartScaler()
+        self.target_scaler = StandartScaler(self.config.num_target_properties)
+        self.additional_inputs_scaler = StandartScaler(self.config.additional_features)
+        self.input_scaler = StandartScaler(self.config.monomer_features)
 
         self.inilinear = nn.Linear(
             self.config.monomer_features, self.config.gc_features
@@ -482,6 +495,7 @@ class PolyGCBaseModel(nn.Module):
                 return y_pred
 
     def forward(self, x, edge_index, batch, mass_distribution, additional_features):
+        x = self.input_scaler(x)
         nx = self.inilinear(x)
         nx = self.conv(nx, edge_index)
 
@@ -490,6 +504,7 @@ class PolyGCBaseModel(nn.Module):
             mass_distribution, dim=1, keepdim=True
         )
         x_pooled = self.pooling(nx, batch)
+
         x_merged = torch.cat(
             (
                 x_pooled,
@@ -503,12 +518,22 @@ class PolyGCBaseModel(nn.Module):
 
         return self.readout(x_readout)
 
-    def prefit(self, y=None, additional_inputs=None):
+    def prefit(self, x=None, y=None, additional_inputs=None):
         """
         Fit the target scaler to the data.
         Args:
             y (torch.Tensor): Target data.
         """
+        if x is not None:
+            if x.ndim != 2:
+                raise ValueError("x must be 2D (batch_size, features).")
+            if x.shape[1] != self.config.monomer_features:
+                raise ValueError(
+                    f"x must have {self.config.monomer_features} features."
+                )
+            if x.shape[0] > 0:
+                # Fit the input scaler to the data
+                self.input_scaler.fit(x)
         if y is not None:
             if y.ndim != 2:
                 raise ValueError("y must be 2D (batch_size, num_target_properties).")

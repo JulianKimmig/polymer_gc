@@ -81,7 +81,9 @@ def plot_embeddings_map(
         plt.scatter(
             embedding[:, 0],
             embedding[:, 1],
-            c=targets[k],
+            c=targets[k]
+            if isinstance(targets[k][0], (int, float))
+            else np.array(targets[k]).argmax(axis=1),
             marker=".",
             s=best_marker_size,
             alpha=1,
@@ -219,6 +221,9 @@ def plot_true_vs_pred(
     fys = {}
     fypreds = {}
     fystds = {}
+    ymin = np.ones((model.config.num_target_properties,)) * np.inf
+    ymax = np.ones((model.config.num_target_properties,)) * -np.inf
+    std_max = np.ones((model.config.num_target_properties,)) * -np.inf
     for name, loader in [
         ("train", train_loader),
         ("test", test_loader),
@@ -249,13 +254,20 @@ def plot_true_vs_pred(
 
         ys = torch.cat(ys).cpu().numpy()
         ypreds = torch.cat(ypreds).cpu().numpy()
+
+        ymin = np.minimum(ys.min(axis=0), ymin)
+        ymax = np.maximum(ys.max(axis=0), ymax)
+
         if model.config.logits_output:
             ystds = torch.exp(torch.cat(ystds)).sqrt().cpu().numpy()
+            std_max = np.maximum(ystds.max(axis=0), std_max)
 
         fys[name] = ys
         fypreds[name] = ypreds
         if model.config.logits_output:
             fystds[name] = ystds
+
+    std_max = np.sqrt(np.exp(std_max))
 
     subset_keys = list(fys.keys())
 
@@ -267,9 +279,20 @@ def plot_true_vs_pred(
             continue
         col["all"] = np.concatenate(fall, axis=0)
 
+    grid_resolution = 200
+    # Create grid
+    xlim_min = ymin - 0.1 * (ymax - ymin)
+    xlim_max = ymax + 0.1 * (ymax - ymin)
+    x_grid = np.linspace(xlim_min, xlim_max, grid_resolution)
+    y_grid = np.linspace(xlim_min, xlim_max, grid_resolution)
+    X, Y = np.meshgrid(x_grid, y_grid)
+
     for sk in subset_keys + ["all"]:
         for i, k in enumerate(target_keys):
             _y, _yp = fys[sk][:, i], fypreds[sk][:, i]
+            if model.config.logits_output:
+                _ystd = fystds[sk][:, i]
+
             # hexin
             plt.figure()
             plt.hexbin(_y, _yp)
@@ -283,12 +306,22 @@ def plot_true_vs_pred(
 
             # scatter
             plt.figure()
-            plt.scatter(
-                _y,
-                _yp,
-                s=min(10, 1000 / np.sqrt(_y.shape[0])),
-                alpha=0.5,
-            )
+            if model.config.logits_output:
+                plt.errorbar(
+                    _y,
+                    _yp,
+                    yerr=_ystd,
+                    fmt="o",
+                    markersize=min(10, 1000 / np.sqrt(_y.shape[0])),
+                    alpha=0.5,
+                )
+            else:
+                plt.scatter(
+                    _y,
+                    _yp,
+                    s=min(10, 1000 / np.sqrt(_y.shape[0])),
+                    alpha=0.5,
+                )
             plt.xlabel(f"True {k}")
             plt.ylabel(f"Predicted {k}")
             plt.title(f"Scatter plot of true vs predicted {k}")
@@ -298,7 +331,7 @@ def plot_true_vs_pred(
             mae = np.mean(np.abs(_y - _yp))
 
             # add information box to the plot
-            textstr = f"RMSE: {rmse:.2f}\nR^2: {rsquared:.2f}\nMAE: {mae:.2f}"
+            textstr = f"RMSE: {rmse:.3g}\n$R^2$: {rsquared:.3f}\nMAE: {mae:.3g}"
             props = dict(boxstyle="round", facecolor="wheat", alpha=0.5)
             # place a text box in upper left in axes coords
             plt.gca().text(
@@ -310,13 +343,66 @@ def plot_true_vs_pred(
                 verticalalignment="top",
                 bbox=props,
             )
-            plt.gca().set_aspect("equal", "datalim")
+            # plt.gca().set_aspect("equal", "datalim")
+            plt.xlim(xlim_min, xlim_max)
+            plt.ylim(xlim_min, xlim_max)
 
             plt.savefig(f"{path}/scatter_true_vs_pred_{k}_{sk}.png")
             plt.close()
 
             if model.config.logits_output:
+                # draw a scatter plot where the size of the points is the std in
+                plt.figure()
+
+                plt.scatter(
+                    _y,
+                    _yp,
+                    s=_ystd,
+                    alpha=0.5,
+                )
+
+                plt.xlabel(f"True {k}")
+                plt.ylabel(f"Predicted {k}")
+                plt.title(f"Scatter plot of true vs predicted {k} with std")
+                # plt.gca().set_aspect("equal", "datalim")
+                plt.xlim(xlim_min, xlim_max)
+                plt.ylim(xlim_min, xlim_max)
+                plt.savefig(f"{path}/scatter_true_vs_pred_std_{k}_{sk}.png")
+                plt.close()
+
+            if model.config.logits_output:
                 # plot each point as a gaussian with std
                 plt.figure()
                 plt.title(f"Gaussian plot of true vs predicted {k}")
-                
+
+                density_map = np.zeros((grid_resolution, grid_resolution))
+                _ystd = fystds[sk][:, i]
+                for _dpy, _dpyp, _dpystd in zip(_y, _yp, _ystd):
+                    Z = np.exp(
+                        -((X - _dpy) ** 2 + (Y - _dpyp) ** 2) / (2 * _dpystd**2)
+                    ) / (2 * np.pi * _dpystd**2)
+                    Z /= Z.max()
+                    density_map = np.maximum(density_map, Z)
+
+                plt.imshow(
+                    density_map,
+                    extent=(xlim_min, xlim_max, xlim_min, xlim_max),
+                    origin="lower",
+                    aspect="auto",
+                    cmap="viridis",
+                )
+                plt.scatter(
+                    _y,
+                    _yp,
+                    s=2,
+                    c="red",
+                )
+                plt.colorbar()
+                plt.xlabel(f"True {k}")
+                plt.ylabel(f"Predicted {k}")
+                plt.title(f"Gaussian plot of true vs predicted {k}")
+                # plt.gca().set_aspect("equal", "datalim")
+                plt.xlim(xlim_min, xlim_max)
+                plt.ylim(xlim_min, xlim_max)
+                plt.savefig(f"{path}/gaussian_true_vs_pred_{k}_{sk}.png")
+                plt.close()

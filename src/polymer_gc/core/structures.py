@@ -10,6 +10,7 @@ from typing import List, Dict, Optional, Type, Any
 from abc import ABC, abstractmethod
 from rdkit import Chem
 from rdkit.Chem import Descriptors
+import numpy as np
 
 
 class StructureEmbedding(BaseModel, ABC):
@@ -83,6 +84,27 @@ def register_embedding(cls, alias: Optional[str] = None):
     DEFAULT_EMBEDDINGS[cls.default_name()] = cls
     return cls
 
+
+class random_64(StructureEmbedding):
+    @classmethod
+    def calculate_embedding(cls, structure: "StructureModel") -> List[float]:
+        """
+        Generate a random 64-dimensional embedding.
+        """
+        return np.random.rand(64).tolist()
+
+    @classmethod
+    def batch_calculate_embedding(
+        cls,
+        structures: List["StructureModel"],
+    ) -> List[List[float]]:
+        """
+        Generate random 64-dimensional embeddings for a batch of structures.
+        """
+        return np.random.rand(len(structures), 64).tolist()
+
+
+register_embedding(random_64, "random_64")
 
 try:
     from sentence_transformers import SentenceTransformer

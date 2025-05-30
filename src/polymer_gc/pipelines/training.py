@@ -2,6 +2,7 @@ import polymer_gc
 from typing import Optional, List, Tuple
 import torch
 from sklearn.model_selection import train_test_split
+from .load import load as load_model, load_modelconfig
 
 import polymer_gc.model
 import polymer_gc.model.base
@@ -74,37 +75,6 @@ def _split_source_dataset_entries(
     return train_entries, val_entries, test_entries
 
 
-MODELS = {"PolyGCBaseModel": polymer_gc.model.base.PolyGCBaseModel}
-
-
-def load_modelconfig(
-    model_config: polymer_gc.model.base.PolyGCBaseModel.ModelConfig,
-) -> polymer_gc.model.base.PolyGCBaseModel:
-    model_cls = MODELS.get(model_config.model, None)
-
-    # try import name if it is given as module string e.g. polymer_gc.model.base.PolyGCBaseModel
-    if model_cls is None:
-        try:
-            module_name, class_name = model_config.model.rsplit(".", 1)
-            module = importlib.import_module(module_name)
-            model_cls = getattr(module, class_name)
-        except (ImportError, AttributeError) as e:
-            raise ValueError(f"Model {model_config.model} not found. Error: {e}")
-    if model_cls is None:
-        raise ValueError(f"Model {model_config.model} not found in available models.")
-    # Remove model name from config
-
-    # Initialize the model with the provided config
-
-    model_cls_config = model_cls.ModelConfig(**model_config.model_dump())
-
-    model = model_cls(config=model_cls_config)
-
-    if not isinstance(model, polymer_gc.model.base.PolyGCBaseModel):
-        raise ValueError(f"Model {model_config.model} is not a valid PolyGCBaseModel.")
-    return model
-
-
 class TrainingConfig(BaseModel):
     lr: float = Field(default=1e-3, description="Learning rate for the optimizer.")
     epochs: int = Field(default=100, description="Number of training epochs.")
@@ -135,7 +105,6 @@ def train(
     pg_dataset_root: str,  # Root directory for PolymerGraphDataset processed files
     pg_dataset_config: polymer_gc.dataset.PgDatasetConfig,
     train_config: TrainingConfig,
-    device: Optional[str] = None,
     training_path: Optional[str] = None,
     save_best: bool = True,
     load_best: bool = True,
@@ -179,6 +148,7 @@ def train(
     )
     print("Preparing training dataset...")
     train_pg_dataset.prepare()
+    print(f"Training dataset prepared with {len(train_pg_dataset)} entries.")
 
     val_pg_dataset = None
     if val_entries:
@@ -192,6 +162,7 @@ def train(
         )
         print("Preparing validation dataset...")
         val_pg_dataset.prepare()
+        print(f"Validation dataset prepared with {len(val_pg_dataset)} entries.")
     else:
         print(
             "Warning: Validation set (source entries) is empty. No validation will be performed."
@@ -209,6 +180,7 @@ def train(
         )
         print("Preparing test dataset...")
         test_pg_dataset.prepare()
+        print(f"Test dataset prepared with {len(test_pg_dataset)} entries.")
 
     train_loader = PyGDataLoader(
         train_pg_dataset,
@@ -281,19 +253,40 @@ def train(
                 json.dump(history, f, indent=4)
 
     def load():
+        model_loaded = False
         if training_path:
-            if os.path.exists(model_path):
-                model.load_state_dict(torch.load(model_path))
-            if os.path.exists(optimizer_path):
-                optimizer.load_state_dict(torch.load(optimizer_path))
+            model_loaded, optimizer_loaded = load_model(
+                model=model,
+                model_path=model_path,
+                optimizer=optimizer,
+                optimizer_path=optimizer_path,
+            )
             if os.path.exists(training_data_path):
                 with open(training_data_path, "r") as f:
                     training_data.update(json.load(f))
 
-    if prefit:
+        return model_loaded
+
+    print("Training model...")
+    model = model.to(device)
+    optimizer = optim.AdamW(
+        model.parameters(),
+        lr=lr,
+    )
+
+    model_loaded = False
+    if continue_training:
+        model_loaded = load()
+        if os.path.exists(training_data_path):
+            if os.path.exists(history_path):
+                with open(history_path, "r") as f:
+                    history.update(json.load(f))
+
+    if prefit and not model_loaded:
         print("Prefitting model...")
         prefit_y_list = []
         prefit_additional_inputs_list = []
+        prefit_x_list = []
         # Only prefit on the training data to avoid leakage
         for data_batch in tqdm(
             train_loader,  # Use train_loader for prefit
@@ -303,41 +296,34 @@ def train(
         ):
             prefit_y_list.append(data_batch.y)
             prefit_additional_inputs_list.append(data_batch.additional_features)
+            prefit_x_list.append(data_batch.x)
 
         if not prefit_y_list:
             print("No data in train_loader for prefit. Check dataset generation.")
-            # Handle this case: either skip prefit or raise error
-            # For now, let's assume prefit can handle empty tensors or skip if empty
             prefit_y_tensor = torch.empty(
-                0, model.num_target_properties
+                0, model.config.num_target_properties
             )  # Adjust shape as needed
-            prefit_additional_inputs_tensor = torch.empty(
-                0, model.additional_features
-            )  # Adjust shape
         else:
             prefit_y_tensor = torch.cat(prefit_y_list)
+
+        if not prefit_x_list:
+            print("No data in train_loader for prefit. Check dataset generation.")
+            prefit_x_tensor = torch.empty(0, model.config.monomer_features)
+        else:
+            prefit_x_tensor = torch.cat(prefit_x_list)
+
+        if not prefit_additional_inputs_list:
+            prefit_additional_inputs_tensor = torch.empty(
+                0, model.config.additional_features
+            )
+        else:
             prefit_additional_inputs_tensor = torch.cat(prefit_additional_inputs_list)
 
         model.prefit(
-            y=prefit_y_tensor,
-            additional_inputs=prefit_additional_inputs_tensor,
+            x=prefit_x_tensor.to(device),
+            y=prefit_y_tensor.to(device),
+            additional_inputs=prefit_additional_inputs_tensor.to(device),
         )
-
-    print("Training model...")
-
-    model = model.to(device)
-
-    optimizer = optim.AdamW(
-        model.parameters(),
-        lr=lr,
-    )
-
-    if continue_training:
-        load()
-        if os.path.exists(training_data_path):
-            if os.path.exists(history_path):
-                with open(history_path, "r") as f:
-                    history.update(json.load(f))
 
     if save_best:
         best_model_loss = training_data.setdefault("best_model_loss", float("inf"))
