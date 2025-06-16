@@ -182,6 +182,16 @@ class StructureModel(BaseModel):
             data["mass"] = calculate_mass_from_smiles(smiles)
         return data
 
+    @model_validator(mode="before")
+    @classmethod
+    def name_or_smiles_required(cls, data: dict):
+        """
+        Ensure that either 'name' or 'smiles' is provided.
+        """
+        if not data.get("name") and not data.get("smiles"):
+            raise ValueError("Either 'name' or 'smiles' must be provided.")
+        return data
+
     def add_embedding(
         self,
         name: str,
@@ -206,7 +216,7 @@ class StructureModel(BaseModel):
 
     # Tell Python how to compare/ hash them
     def __hash__(self) -> int:  # allows use as dict keys
-        return hash(self.smiles)
+        return hash(self.smiles) if self.smiles else hash(self.name)
 
     def __eq__(self, other) -> bool:
         return isinstance(other, StructureModel) and self.smiles == other.smiles

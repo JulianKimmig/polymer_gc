@@ -9,7 +9,7 @@ from typing_extensions import (
 )  # loading from typing_extensions for compatibility pydantic
 
 from ..sec import SimSEC
-from polymer_gc.graph import make_linear_polymer_graphs
+from polymer_gc.graph import make_linear_polymer_graphs, make_branched_polymer_graphs
 
 
 class SmallMoleculeEntry(BaseModel):
@@ -133,6 +133,35 @@ class BranchedPolymer(PolymerArchitecture):
     architecture_type: Literal["branched"] = Field(
         "branched", description="Branched polymer architecture."
     )
+
+    branching_indices: List[int] = Field(
+        ...,
+        description="Indices of monomers that can branch. Must be a list of integers.",
+        default_factory=lambda: [0],
+    )
+
+    off_branches: Optional[List[int]] = Field(
+        None,
+        description="Maximum number of branches for each branching monomer. Must be a list of integers.",
+    )
+
+    def make_graphs(
+        self, masses: List[float], sequence: AnyPolymerSequence, monomers: List[Monomer]
+    ):
+        if sequence.sequence_type == "homopolymer":
+            raise ValueError("Homopolymers are not supported for branched polymers.")
+        elif sequence.sequence_type == "random_copolymer":
+            return make_branched_polymer_graphs(
+                M=masses,
+                monomers=monomers,
+                branching_indices=self.branching_indices,
+                off_branches=self.off_branches or [2] * len(self.branching_indices),
+                rel_content=[[i] for i in sequence.ratios],
+            )
+        else:
+            raise ValueError(
+                f"Sequence type {sequence.sequence_type} not supported for branched polymer."
+            )
 
 
 class CrosslinkedPolymer(PolymerArchitecture):

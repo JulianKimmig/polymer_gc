@@ -34,6 +34,7 @@ class SimSEC(SECDataBase):
         *,
         n_molecules: int = 1_000_000,
         n_points: int = 5_000,
+        n_points_detect: Optional[int] = None,
         volume_range: Tuple[float, float] = (0.0, 30.0),
         calibration_params: Tuple[float, float] | None = None,
         noise_level: float = 0.0,
@@ -58,6 +59,9 @@ class SimSEC(SECDataBase):
             else random_state
         )
 
+        if n_points_detect is None:
+            n_points_detect = int(n_points / 10)
+
         # --------------------------------------------------------------
         # Helper: simulate moments with given μ, σ on a *small* sample
         # --------------------------------------------------------------
@@ -75,7 +79,7 @@ class SimSEC(SECDataBase):
             vols_full, masses_full = vols_full[keep], masses_full[keep]
             hist, edges = np.histogram(
                 vols_full,
-                bins=int(n_points / 10),
+                bins=n_points_detect,
                 range=volume_range,
                 weights=masses_full,
             )
@@ -101,7 +105,10 @@ class SimSEC(SECDataBase):
                 mn, mw = p["Mn"], p["Mw"]
                 return mn, mw
 
-            return 0.0, 0.0
+            return (
+                1e-32,
+                1e-32,
+            )  # dont return zero as this will later cause a division by zero
 
         # --------------------------------------------------------------
         # Newton‑style parameter refinement (μ shifts Mn, σ tunes Mw/Mn)
@@ -125,7 +132,7 @@ class SimSEC(SECDataBase):
         else:
             raise ValueError(
                 f"Failed to converge after {max_iter} iterations. "
-                f"Last error: Mn = {err_Mn:.3g}, Mw = {err_Mw:.3g}"
+                f"Last error: Mn = {err_Mn}, Mw = {err_Mw}"
             )
 
         # --------------------------------------------------------------
