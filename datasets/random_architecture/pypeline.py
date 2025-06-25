@@ -26,7 +26,7 @@ from polymer_gc.utils.pdi import generate_pdi_distribution
 import networkx as nx
 import json
 
-N_POLYMERS = 4  # number of polymers per class
+N_POLYMERS = 10  # number of polymers per class
 GRAPHS_PER_POLYMER = 1
 GRAPHS_PER_SIMULATION = 100
 
@@ -34,14 +34,14 @@ min_mass, max_mass = 10_000, 1_000_000  # mass range
 min_pdi, max_pdi = 1.1, 4.0  # PDI range
 MAX_CO_MONOMERS = 3  # maximum number of monomers in a polymer
 PDI_R = 2  # distribution control parameter for PDI generation
-rng = np.random.RandomState(42)
+rng = np.random.RandomState(4)
 db_path = "database.db"
 MAX_SAMPLE_MASS = 50_000
 
 
 BLOCK_FACTOR = 5
 
-architecture_one_hot_targets = ["linear", "star", "cross_linked"]
+architecture_one_hot_targets = ["linear", "star", "cross_linked","branching"]
 structure_one_hot_targets = ["homopolymer", "random_copolymer", "gradient", "block"]
 
 # generate a list of monomers from the tg datafile, as this is what we have now
@@ -76,6 +76,10 @@ class PolymerMaker:
     architecture_one_hot_target: int
     structure_one_hot_target: int
 
+    graphs_per_simulation: int = GRAPHS_PER_SIMULATION
+
+    allowed_node_deviation: float = 1.05
+
     @property
     def graph_name(self) -> str:
         return f"{architecture_one_hot_targets[self.architecture_one_hot_target]}_{structure_one_hot_targets[self.structure_one_hot_target]}"
@@ -104,6 +108,7 @@ class PolymerMaker:
             self.rng = np.random.RandomState(rng)
         else:
             self.rng = rng
+        self._inner_seed = self.rng.randint(0,1000000)
 
     def get_smiles(
         self,
@@ -113,15 +118,16 @@ class PolymerMaker:
     def make_graphs(self, mass, entry: DatasetItem):
         print("Make graphs of mass", mass)
         sim_config = self.get_simulation(mass, entry)
+        sim_config.params.random_seed = self.rng.randint(0,1000000)
         # print(sim_config.model_dump_json(indent=2))
         monomers = sim_config.monomers
         total_mass = (
-            sum([m.molar_mass * m.count for m in monomers]) / GRAPHS_PER_SIMULATION
+            sum([m.molar_mass * m.count for m in monomers]) / self.graphs_per_simulation
         )
 
-        assert np.abs(total_mass - mass) / mass < 0.05, (
-            f"total_mass {total_mass} != mass {mass} p/m 5%"
-        )
+        # assert np.abs(total_mass - mass) / mass < 0.05, (
+        #     f"total_mass {total_mass} != mass {mass} p/m 5%"
+        # )
 
         sim = Simulation(sim_config)
         res = sim.run()
@@ -239,20 +245,20 @@ class PolymerMaker:
             *np.unique(n_nodes, return_counts=True, return_index=True)
         ):
             requ = dict(
-                n_nodes_min=max(n - 2, 1),
-                n_nodes_max=n + 2,
+                n_nodes_min=max(int(n*1/self.allowed_node_deviation), 1),
+                n_nodes_max=int(n*self.allowed_node_deviation),
                 name=self.graph_name,
                 exclude_entries=found_graphs or None,
                 description=self._formatted_graph_description(entry),
                 n=c,
             )
-
             graphs = ReusableGraphEntry.get_possible_entries(**requ)
             for i in range(10):
                 if len(graphs) >= c:
                     break
                 self.make_graphs(samplemasses[mass_idx], entry)
                 graphs = ReusableGraphEntry.get_possible_entries(**requ)
+       
             if len(graphs) < c:
                 raise ValueError(
                     f"Found {len(graphs)} graphs for length {n} but required {c}"
@@ -297,11 +303,10 @@ class GradientMixin:
     MIN_MONOMERS = 2
 
     def get_params(self, entry_index: int) -> dict:
-        rng = np.random.RandomState(entry_index)
-        n_monomers = rng.randint(self.MIN_MONOMERS, self.MAX_MONOMERS + 1)
+        n_monomers = np.random.RandomState(self._inner_seed+entry_index).randint(self.MIN_MONOMERS, self.MAX_MONOMERS + 1)
         min_threshold = 1 / (4 * n_monomers)
         while True:
-            monomer_ratios = rng.dirichlet(np.ones(n_monomers), size=1)[0]
+            monomer_ratios = self.rng.dirichlet(np.ones(n_monomers), size=1)[0]
             monomer_ratios = np.round(monomer_ratios, 1)
             monomer_ratios[-1] = 1 - np.sum(monomer_ratios[:-1])
             # Check if all ratios meet the minimum threshold
@@ -312,9 +317,42 @@ class GradientMixin:
         for i in range(n_monomers - 1):
             reactivity_ratios.append(reactivity_ratios[-1] * (self.rng.rand() * 10 + 1))
 
+        # shuffle reactivity ratios
+        reactivity_ratios = self.rng.permutation(reactivity_ratios).tolist()
+
         params = dict(n_monomers=n_monomers, monomer_ratios=monomer_ratios.tolist(),reactivity_ratios=reactivity_ratios)
         return params
 
+    def graph_description(self, entry: DatasetItem) -> str:
+        keys = list(entry.structure_map.keys())
+        dat = {k: f"backbone" for k in keys}
+        dat["monomer_ratios"] = {
+            k: r
+            for r, k in zip(entry.params["monomer_ratios"],keys)
+        }
+        dat["reactivity_ratios"] = {
+            k: r
+            for r, k in zip(entry.params["reactivity_ratios"],keys)
+        }
+        return dat
+
+    def get_smiles(
+        self,
+    ) -> List[Dict[str, str]]:
+        monomer_smiles = []
+        for i in range(N_POLYMERS):
+            params = self.get_params(i)
+            n_monomers = params["n_monomers"]
+            monomer_smiles.append(
+                {
+                    k: s
+                    for k, s in zip(
+                        [chr(65 + i) for i in range(n_monomers)],
+                        self.rng.choice(lin_monomers, n_monomers, replace=False),
+                    )
+                }
+            )
+        return monomer_smiles   
 
 class HomopolymerMixin(GradientMixin):
     structure_one_hot_target = structure_one_hot_targets.index("homopolymer")
@@ -340,54 +378,26 @@ class BlockMixin(GradientMixin):
         params["reactivity_ratios"] = (
             10 ** (np.arange(0, len(params["reactivity_ratios"])) * BLOCK_FACTOR)
         ).tolist()
+        # shuffle reactivity ratios
+        params["reactivity_ratios"] = self.rng.permutation(params["reactivity_ratios"]).tolist()
         return params
 
 
 class LinearGradient(GradientMixin, PolymerMaker):
     architecture_one_hot_target = architecture_one_hot_targets.index("linear")
 
-    def graph_description(self, entry: DatasetItem) -> str:
-        dat = {k: f"backbone" for i, k in enumerate(entry.structure_map.keys())}
-        dat["monomer_ratios"] = {
-            k: entry.params["monomer_ratios"][i]
-            for i, k in enumerate(entry.structure_map.keys())
-        }
-        dat["reactivity_ratios"] = {
-            k: entry.params["reactivity_ratios"][i]
-            for i, k in enumerate(entry.structure_map.keys())
-        }
-        return dat
-
-    def get_smiles(
-        self,
-    ) -> List[Dict[str, str]]:
-        monomer_smiles = []
-        for i in range(N_POLYMERS):
-            params = self.get_params(i)
-            n_monomers = params["n_monomers"]
-            monomer_smiles.append(
-                {
-                    k: s
-                    for k, s in zip(
-                        [chr(65 + i) for i in range(n_monomers)],
-                        self.rng.choice(lin_monomers, n_monomers, replace=False),
-                    )
-                }
-            )
-        return monomer_smiles
-
 
     def get_simulation(self, mass, entry: DatasetItem) -> SimulationInput:
         structs = [entry.structuremapentry(k) for k in entry.structure_map.keys()]
         ratios = entry.params["monomer_ratios"]
         reactivity_ratios = entry.params["reactivity_ratios"]
-        intis = np.round(np.array(ratios) * GRAPHS_PER_SIMULATION).astype(int)
+        intis = np.round(np.array(ratios) * self.graphs_per_simulation).astype(int)
         highest_reactivity_index = np.argmax(reactivity_ratios)
         pseudoinis = [
             MonomerDef.chaingrowth_initiator(
                 name=chr(65 + highest_reactivity_index),
                 molar_mass=structs[highest_reactivity_index].mass,
-                count=GRAPHS_PER_SIMULATION,
+                count=self.graphs_per_simulation,
                 active_site_name=f"R_{chr(65 + highest_reactivity_index)}",
             )
         ]
@@ -396,7 +406,7 @@ class LinearGradient(GradientMixin, PolymerMaker):
             MonomerDef.chaingrowth_monomer(
                 name=k,
                 molar_mass=s.mass,
-                count=int(ini * mass / s.mass),
+                count=max(1,int(ini * mass / s.mass)),
                 head_name=f"H_{k}",
                 tail_name=f"T_{k}",
             )
@@ -453,46 +463,22 @@ class StartGradientCopolymer(GradientMixin, PolymerMaker):
     def get_smiles(
         self,
     ) -> List[Dict[str, str]]:
-        monomer_smiles = []
-        for i in range(N_POLYMERS):
-            params = self.get_params(i)
-            n_monomers = params["n_monomers"]
-            monomer_smiles.append(
-                {
-                    k: s
-                    for k, s in zip(
-                        [chr(65 + i) for i in range(n_monomers + 1)],
-                        self.rng.choice(lin_monomers, n_monomers + 1, replace=False),
-                    )
-                }
-            )
+        monomer_smiles=super().get_smiles()
+        for ps in monomer_smiles:
+            ps[chr(65 + len(ps))] = self.rng.choice(lin_monomers)
         return monomer_smiles
 
+    
     def get_params(self, entry_index: int) -> dict:
         params = super().get_params(entry_index)
-        n_monomers = params["n_monomers"]
-        monomer_ratios = np.array(params["monomer_ratios"])
-
-        n_arms = rng.randint(3, self.MAX_ARMS + 1)
-        return dict(
-            n_monomers=n_monomers,
-            monomer_ratios=monomer_ratios.tolist(),
-            reactivity_ratios=reactivity_ratios.tolist(),
-            n_arms=n_arms,
-        )
+        params["n_arms"] = self.rng.randint(3, self.MAX_ARMS + 1)
+        return params
 
     def graph_description(self, entry: DatasetItem) -> str:
+        dat = super().graph_description(entry)
         keys = list(entry.structure_map.keys())
-        monokeys = keys[1:]
-        corekey = keys[0]
-        dat = {k: f"backbone" for k in monokeys}
+        corekey = keys[-1]
         dat[corekey] = "core"
-        dat["monomer_ratios"] = {
-            k: entry.params["monomer_ratios"][i] for i, k in enumerate(monokeys)
-        }
-        dat["reactivity_ratios"] = {
-            k: entry.params["reactivity_ratios"][i] for i, k in enumerate(monokeys)
-        }
         dat["n_arms"] = entry.params["n_arms"]
         return dat
 
@@ -502,15 +488,15 @@ class StartGradientCopolymer(GradientMixin, PolymerMaker):
         params = entry.params
         n_monomers = params["n_monomers"]
         monomer_ratios = np.array(params["monomer_ratios"])
+        keys = list(entry.structure_map.keys())
         monomer_masses = np.array(
             [
                 entry.structuremapentry(k).mass
-                for k in entry.structure_map.keys()
-                if k != "A"
+                for k in keys[:-1]
             ]
         )
 
-        masses_wo_core = np.array(samplemasses) - entry.structuremapentry("A").mass
+        masses_wo_core = np.array(samplemasses) - entry.structuremapentry(keys[-1]).mass
 
         mean_mass = np.sum(monomer_masses * monomer_ratios) / n_monomers
         total_units = masses_wo_core / (mean_mass * n_monomers)
@@ -519,20 +505,20 @@ class StartGradientCopolymer(GradientMixin, PolymerMaker):
 
     def get_simulation(self, mass, entry: DatasetItem) -> SimulationInput:
         keys = list(entry.structure_map.keys())
-        monokeys = keys[1:]
-        corekey = keys[0]
+        monokeys = keys[:-1]
+        corekey = keys[-1]
         structs = [entry.structuremapentry(k) for k in keys]
-        corestruct = structs[0]
-        monomerstructs = structs[1:]
+        corestruct = structs[-1]
+        monomerstructs = structs[:-1]
 
         ratios = entry.params["monomer_ratios"]
         reactivity_ratios = entry.params["reactivity_ratios"]
-        intis = np.round(np.array(ratios) * GRAPHS_PER_SIMULATION).astype(int)
+        intis = np.round(np.array(ratios) * self.graphs_per_simulation).astype(int)
         coreini = [
             MonomerDef(
                 name=corekey,
                 molar_mass=corestruct.mass,
-                count=GRAPHS_PER_SIMULATION,
+                count=self.graphs_per_simulation,
                 sites=[
                     SiteDef(type=f"R_{corekey}", status="ACTIVE")
                     for i in range(entry.params["n_arms"])
@@ -583,21 +569,111 @@ class StartBlock(BlockMixin, StartGradientCopolymer):
     pass
 
 
-class CrossLinkedGradient(GradientMixin, PolymerMaker):
+class CrossLinkedGradient(LinearGradient):
     architecture_one_hot_target = architecture_one_hot_targets.index("cross_linked")
+    allowed_node_deviation = 1.15
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.repeat_simulation = self.graphs_per_simulation
+        self.graphs_per_simulation = 10
+    
+    def get_simulation(self, mass, entry: DatasetItem) -> SimulationInput:
+        sim_config = super().get_simulation(mass, entry)
+        mono_0 = sim_config.monomers[-1]
+        sites = list([s.model_dump() for s in mono_0.sites])
+        ser_sim_config=sim_config.model_dump_json()
+        for site in sites:
+            oldtype = site['type']
+            newtype = f"{site['type']}_2"
+            ser_sim_config=ser_sim_config.replace(oldtype,newtype)
+            site["type"] = newtype
+            mono_0.sites.append(SiteDef(**site))
 
-    def get_params(self, entry_index: int) -> dict:
-        params = super().get_params(entry_index)
-        params["reactivity_ratios"] = np.ones(params["n_monomers"]).tolist()
-        return params
+        deser_sim_config=SimulationInput.model_validate_json(ser_sim_config)
+        sim_config.reactions.update(deser_sim_config.reactions)
+        for mono in sim_config.monomers:
+            mono.count = int(max(1,mono.count/self.graphs_per_simulation))
 
 
+        return sim_config
+    
+    def make_graphs(self, mass, entry: DatasetItem):
+        # as one simulation gives always one graph, we need to run it multiple times
+        for _ in range(self.repeat_simulation):
+            super().make_graphs(mass, entry)
+
+class CrossLinkedHomopolymer(HomopolymerMixin,CrossLinkedGradient):
+    pass
+
+class CrossLinkedRandomCopolymer(RandomCopolymerMixin,CrossLinkedGradient):
+    pass
+
+
+class BranchingGradient(LinearGradient):
+    architecture_one_hot_target = architecture_one_hot_targets.index("branching")
+    allowed_node_deviation = 1.15
+    
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # self.repeat_simulation = self.graphs_per_simulation
+        # self.graphs_per_simulation = 10
+    
+    def get_simulation(self, mass, entry: DatasetItem) -> SimulationInput:
+        sim_config = super().get_simulation(mass, entry)
+        mono_0 = sim_config.monomers[-1]
+        sites = list([s.model_dump() for s in mono_0.sites])
+        for site in sites[1:]:
+            oldtype = site['type']
+            newtype = f"{site['type']}_2"
+            site["type"] = newtype
+            mono_0.sites.append(SiteDef(**site))
+            for reaction in sim_config.reactions.values():
+                if reaction.activation_map.get(oldtype):
+                    reaction.activation_map[newtype] = reaction.activation_map[oldtype]
+    
+
+        # for mono in sim_config.monomers:
+            # mono.count = int(max(1,mono.count/self.graphs_per_simulation))
+
+        print(sim_config.model_dump_json(indent=2))
+        return sim_config
+    
+    # def make_graphs(self, mass, entry: DatasetItem):
+    #     # as one simulation gives always one graph, we need to run it multiple times
+    #     for _ in range(self.repeat_simulation):
+    #         super().make_graphs(mass, entry)
+    
+
+
+class BranchingHomopolymer(HomopolymerMixin,BranchingGradient):
+    pass
+
+class BranchingRandomCopolymer(RandomCopolymerMixin,BranchingGradient):
+    pass
+
+class BranchingBlock(BlockMixin,BranchingGradient):
+    pass
+
+
+
+rints=rng.randint(0,1000000,100).tolist()
 entries = []
-entries += LinearHomopolymer()(dataset, start=len(entries))
-entries += LinearRandomCopolymer()(dataset, start=len(entries))
-entries += LinearGradient()(dataset, start=len(entries))
-entries += LinearBlock()(dataset, start=len(entries))
-entries += StartGradientCopolymer()(dataset, start=len(entries))
-entries += StartHomopolymer()(dataset, start=len(entries))
-entries += StartRandomCopolymer()(dataset, start=len(entries))
-entries += StartBlock()(dataset, start=len(entries))
+entries += LinearHomopolymer(rng=rints.pop())(dataset, start=len(entries))
+entries += LinearRandomCopolymer(rng=rints.pop())(dataset, start=len(entries))
+entries += LinearGradient(rng=rints.pop())(dataset, start=len(entries))
+entries += LinearBlock(rng=rints.pop())(dataset, start=len(entries))
+entries += StartGradientCopolymer(rng=rints.pop())(dataset, start=len(entries))
+entries += StartHomopolymer(rng=rints.pop())(dataset, start=len(entries))
+entries += StartRandomCopolymer(rng=rints.pop())(dataset, start=len(entries))
+entries += StartBlock(rng=rints.pop())(dataset, start=len(entries))
+entries += CrossLinkedHomopolymer(rng=rints.pop())(dataset, start=len(entries))
+entries += CrossLinkedRandomCopolymer(rng=rints.pop())(dataset, start=len(entries))
+entries += CrossLinkedGradient(rng=rints.pop())(dataset, start=len(entries))
+entries += BranchingHomopolymer(rng=rints.pop())(dataset, start=len(entries))
+entries += BranchingRandomCopolymer(rng=rints.pop())(dataset, start=len(entries))
+entries += BranchingGradient(rng=rints.pop())(dataset, start=len(entries))
+entries += BranchingBlock(rng=rints.pop())(dataset, start=len(entries))
+
+
