@@ -1,15 +1,28 @@
-from typing import Optional, List, Tuple, Literal
+from typing import Optional, List, Tuple, Literal, Dict, Any
 import torch
 from torch_geometric.nn import GATConv, Sequential, SAGEConv
 from torch.nn import LayerNorm
 from torch.nn import ELU
 from torch.nn import Dropout
 from torch.nn import Linear
-from torch_geometric.nn import global_mean_pool
+from torch_geometric.nn import global_mean_pool, global_max_pool, global_add_pool
 from pydantic import BaseModel, Field, model_validator, field_validator
+from torch_geometric.utils import degree
 
 
 import torch.nn as nn
+
+
+class MeanDiffFeatureBlock(torch.nn.Module):
+    def __init__(self, features):
+        super(MeanDiffFeatureBlock, self).__init__()
+        self.linear = Linear(features * 2, features)
+
+    def forward(self, x, batch):
+        x_mean = global_mean_pool(x, batch)
+        x_mean = x_mean[batch]
+        x_diff = x - x_mean
+        return self.linear(torch.cat([x, x_diff], dim=-1))
 
 
 class GCBlock(torch.nn.Module):
@@ -38,11 +51,11 @@ class GCBlock(torch.nn.Module):
         return y
 
 
-class MeanPooling(torch.nn.Module):
-    def __init__(self, layer_size, dropout_rate=0.3):
+class PoolingLayer(torch.nn.Module):
+    def __init__(self, layer_size, aggr, dropout_rate=0.3):
         super().__init__()
 
-        self.aggr = global_mean_pool
+        self.aggr = aggr
         self.lnorm1 = LayerNorm(layer_size)
         self.linear1 = Linear(layer_size, layer_size)
         self.activation = ELU()
@@ -279,6 +292,10 @@ class PolyGCBaseModel(nn.Module):
             "PolyGCBaseModel",
             description="Model name.",
         )
+        task_type: Literal["regression", "classification"] = Field(
+            "regression",
+            description="Type of task: regression or classification.",
+        )
         monomer_features: int = Field(
             64,
             description="Number of features for each monomer.",
@@ -308,21 +325,17 @@ class PolyGCBaseModel(nn.Module):
         mass_distribution_buckets: int = Field(
             100,
             description="Number of buckets for the mass distribution histogram.",
-            gt=0,
+            ge=0,
         )
         mass_distribution_reduced: int = Field(
             6,
             description="Number of features to reduce the mass distribution to.",
-            gt=0,
+            ge=0,
         )
         additional_features: int = Field(
             0,
             description="Number of additional features to include in the model.",
             ge=0,
-        )
-        logits_output: bool = Field(
-            True,
-            description="Whether to use logits output or not.",
         )
 
         mlp_layer: int = Field(
@@ -343,6 +356,24 @@ class PolyGCBaseModel(nn.Module):
             description="Test loss function to use. If None, the same loss function as training will be used.",
         )
 
+        num_classes_per_task: Optional[List[int]] = Field(
+            None,
+            description="List with the number of classes for each classification task. E.g., [10, 5] for two tasks with 10 and 5 classes.",
+        )
+        logits_output: bool = Field(
+            False,  # <-- Set to False, we'll use a simple Linear layer for logits
+            description="Whether to use logits output or not.",
+        )
+
+        pooling_layers: List[Dict[str, Any]] = Field(
+            default_factory=lambda: [{"type": "mean"}],
+            description=(
+                "A list of pooling layers to apply. Each dict specifies the 'type' "
+                "and any parameters. Supported types: 'mean', 'max', 'add'. "
+                "Example: [{'type': 'mean'}, {'type': 'max'}]"
+            ),
+        )
+
         @model_validator(mode="before")
         @classmethod
         def interfere_missing_values(cls, values):
@@ -351,6 +382,13 @@ class PolyGCBaseModel(nn.Module):
             """
             if values.get("gc_features") is None:
                 values["gc_features"] = values["monomer_features"]
+            if (
+                values.get("task_type") == "classification"
+                and values.get("num_classes_per_task") is None
+            ):
+                raise ValueError(
+                    "`num_classes_per_task` must be provided for classification tasks."
+                )
             return values
 
     def __init__(
@@ -364,12 +402,19 @@ class PolyGCBaseModel(nn.Module):
         super().__init__()
         self.config = self.ModelConfig(**config) if isinstance(config, dict) else config
 
-        self.target_scaler = StandartScaler(self.config.num_target_properties)
+        # Only create target scaler for regression tasks
+        if self.config.task_type == "regression":
+            self.target_scaler = StandartScaler(self.config.num_target_properties)
+        else:
+            self.target_scaler = None
+
+        self.is_classification = self.config.task_type == "classification"
+
         self.additional_inputs_scaler = StandartScaler(self.config.additional_features)
         self.input_scaler = StandartScaler(self.config.monomer_features)
 
         self.inilinear = nn.Linear(
-            self.config.monomer_features, self.config.gc_features
+            self.config.monomer_features + 1, self.config.gc_features
         )
 
         if self.config.num_gnn_layers <= 0:
@@ -389,14 +434,45 @@ class PolyGCBaseModel(nn.Module):
                 ],
             )
 
-        self.pooling = MeanPooling(
-            self.config.gc_features, dropout_rate=self.config.dropout_rate
-        )
-        self.mass_dist_reducer = nn.Linear(
-            self.config.mass_distribution_buckets, self.config.mass_distribution_reduced
-        )
+        self.mean_diff_feature_block = MeanDiffFeatureBlock(self.config.gc_features)
+
+        # Create pooling layers as proper modules
+        self.pooling_layers = nn.ModuleList()
+        pooling_factory = {
+            "mean": lambda: PoolingLayer(
+                self.config.gc_features, global_mean_pool, self.config.dropout_rate
+            ),
+            "max": lambda: PoolingLayer(
+                self.config.gc_features, global_max_pool, self.config.dropout_rate
+            ),
+            "add": lambda: PoolingLayer(
+                self.config.gc_features, global_add_pool, self.config.dropout_rate
+            ),
+            "sum": lambda: PoolingLayer(
+                self.config.gc_features, global_add_pool, self.config.dropout_rate
+            ),
+        }
+        for pool_config in self.config.pooling_layers:
+            pool_type = pool_config.get("type")
+            if pool_type in pooling_factory:
+                self.pooling_layers.append(pooling_factory[pool_type]())
+            else:
+                raise ValueError(f"Unsupported pooling type: {pool_type}")
+        pooling_output_dim = self.config.gc_features * len(self.pooling_layers)
+
+        if self.config.mass_distribution_buckets == 0:
+            self.config.mass_distribution_reduced = 0
+
+        if self.config.mass_distribution_reduced:
+            self.mass_dist_reducer = nn.Linear(
+                self.config.mass_distribution_buckets,
+                self.config.mass_distribution_reduced,
+            )
+        else:
+            self.mass_dist_reducer = None
+
         mlp_in_features = (
-            self.config.gc_features
+            pooling_output_dim
             + self.config.mass_distribution_reduced
             + self.config.additional_features
         )
@@ -414,7 +490,12 @@ class PolyGCBaseModel(nn.Module):
             ]
         )
 
-        if self.config.logits_output:
+        if self.is_classification:
+            # The total number of output neurons is the sum of classes in all tasks
+            total_output_classes = sum(self.config.num_classes_per_task)
+            self.readout = nn.Linear(mlp_in_features, total_output_classes)
+            self.loss = nn.CrossEntropyLoss()  # Use CrossEntropyLoss
+        elif self.config.logits_output:
             self.readout = LogitsOutput(
                 mlp_in_features,
                 self.config.num_target_properties,
@@ -456,18 +537,77 @@ class PolyGCBaseModel(nn.Module):
             torch.Tensor: Loss value.
         """
         y = batch.y
-        y_scaled = self.target_scaler(y)
+
+        # Only scale targets for regression tasks
+
+        lossf = getattr(self, f"{context}_loss_function", self.loss)
+
         y_pred = self(
             batch.x,
             batch.edge_index,
             batch.batch,
-            batch.mass_distribution,
-            batch.additional_features,
+            getattr(batch, "mass_distribution", None),
+            getattr(batch, "additional_features", None),
         )
 
-        lossf = getattr(self, f"{context}_loss_function", self.loss)
-        loss = lossf(y_pred, y_scaled)
-        return loss
+        if self.is_classification:
+            logits_per_task = torch.split(
+                y_pred, self.config.num_classes_per_task, dim=1
+            )
+            total_loss = 0.0
+            num_tasks = len(self.config.num_classes_per_task)
+
+            for i in range(num_tasks):
+                # Get the logits for the current task
+                task_logits = logits_per_task[i]
+                # Get the ground truth labels for the current task (long type is required for CrossEntropyLoss)
+                task_labels = y[:, i].long()
+
+                # Calculate loss for this task
+                task_loss = lossf(task_logits, task_labels)
+                total_loss += task_loss
+
+            # Average the loss across the tasks
+            return total_loss / num_tasks
+        else:
+            y_scaled = self.target_scaler(y)
+            loss = lossf(y_pred, y_scaled)
+            return loss
+
+    def predict_embedding(self, batch):
+        self.eval()
+        with torch.no_grad():
+            return self(
+                batch.x,
+                batch.edge_index,
+                batch.batch,
+                getattr(batch, "mass_distribution", None),
+                getattr(batch, "additional_features", None),
+                return_embedding=True,
+            )
+
+    def predict_proba(self, batch):
+        self.eval()
+        if not self.is_classification:
+            raise ValueError(
+                "predict_proba is only available for classification tasks."
+            )
+        with torch.no_grad():
+            y_pred = self(
+                batch.x,
+                batch.edge_index,
+                batch.batch,
+                getattr(batch, "mass_distribution", None),
+                getattr(batch, "additional_features", None),
+            )
+            logits_per_task = torch.split(
+                y_pred, self.config.num_classes_per_task, dim=1
+            )
+
+            probs_per_task = [
+                torch.softmax(logits, dim=1) for logits in logits_per_task
+            ]
+            return probs_per_task
 
     def predict(self, batch):
         self.eval()
@@ -476,47 +616,84 @@ class PolyGCBaseModel(nn.Module):
                 batch.x,
                 batch.edge_index,
                 batch.batch,
-                batch.mass_distribution,
-                batch.additional_features,
+                getattr(batch, "mass_distribution", None),
+                getattr(batch, "additional_features", None),
             )
 
-            if self.config.logits_output:
-                mean_preds, log_var_preds = y_pred
-                mean_preds = self.target_scaler.inverse(mean_preds)
-                # Adjust variance for unscaling
-                std = self.target_scaler.std + self.target_scaler.eps
-                log_var_preds = log_var_preds + 2 * torch.log(std)
-                return (
-                    mean_preds,
-                    log_var_preds,
-                )  # or exp(log_var_preds) for actual variance
-            else:
-                y_pred = self.target_scaler.inverse(y_pred)
-                return y_pred
+            # Only apply inverse scaling for regression tasks
+            if self.is_classification:
+                # --- START NEW LOGIC FOR CLASSIFICATION ---
+                logits_per_task = torch.split(
+                    y_pred, self.config.num_classes_per_task, dim=1
+                )
 
-    def forward(self, x, edge_index, batch, mass_distribution, additional_features):
+                predicted_indices = []
+                for task_logits in logits_per_task:
+                    # Get the index of the max logit for each sample in the batch
+                    preds = torch.argmax(task_logits, dim=1)
+                    predicted_indices.append(preds.unsqueeze(1))
+
+                # Stack the predictions to get a [batch_size, 2] tensor
+                return torch.cat(predicted_indices, dim=1)
+                # --- END NEW LOGIC FOR CLASSIFICATION ---
+
+            else:
+                if self.config.logits_output:
+                    mean_preds, log_var_preds = y_pred
+                    mean_preds = self.target_scaler.inverse(mean_preds)
+                    # Adjust variance for unscaling
+                    std = self.target_scaler.std + self.target_scaler.eps
+                    log_var_preds = log_var_preds + 2 * torch.log(std)
+                    return (
+                        mean_preds,
+                        log_var_preds,
+                    )  # or exp(log_var_preds) for actual variance
+                else:
+                    y_pred = self.target_scaler.inverse(y_pred)
+                    return y_pred
+
+    def forward(
+        self,
+        x,
+        edge_index,
+        batch,
+        mass_distribution=None,
+        additional_features=None,
+        return_embedding=False,
+    ):
         x = self.input_scaler(x)
+
+        degree_x = degree(edge_index[0], num_nodes=x.shape[0])
+        x = torch.cat([x, degree_x.unsqueeze(1)], dim=-1)
+
         nx = self.inilinear(x)
         nx = self.conv(nx, edge_index)
+        nx = self.mean_diff_feature_block(nx, batch)
+        pooled_outputs = [pool_func(nx, batch) for pool_func in self.pooling_layers]
+        x_pooled_cat = torch.cat(pooled_outputs, dim=-1)
 
-        # batchwise area normalization of mass_distribution
-        mass_distribution = mass_distribution / torch.sum(
-            mass_distribution, dim=1, keepdim=True
-        )
-        x_pooled = self.pooling(nx, batch)
+        cat_tensors = [x_pooled_cat]
+        if additional_features is not None:
+            cat_tensors.append(self.additional_inputs_scaler(additional_features))
+        if self.mass_dist_reducer is not None and mass_distribution is not None:
+            # batchwise area normalization of mass_distribution
+
+            mass_distribution = mass_distribution / torch.sum(
+                mass_distribution, dim=1, keepdim=True
+            )
+            cat_tensors.append(self.mass_dist_reducer(mass_distribution))
 
         x_merged = torch.cat(
-            (
-                x_pooled,
-                self.mass_dist_reducer(mass_distribution),
-                self.additional_inputs_scaler(additional_features),
-            ),
+            cat_tensors,
             dim=-1,
         )
 
         x_readout = self.mlp(x_merged)
 
-        return self.readout(x_readout)
+        if return_embedding:
+            return x_readout
+        else:
+            return self.readout(x_readout)
 
     def prefit(self, x=None, y=None, additional_inputs=None):
         """
@@ -534,7 +711,7 @@ class PolyGCBaseModel(nn.Module):
             if x.shape[0] > 0:
                 # Fit the input scaler to the data
                 self.input_scaler.fit(x)
-        if y is not None:
+        if y is not None and not self.is_classification:
             if y.ndim != 2:
                 raise ValueError("y must be 2D (batch_size, num_target_properties).")
             if y.shape[1] != self.config.num_target_properties:
@@ -542,7 +719,7 @@ class PolyGCBaseModel(nn.Module):
                     f"y must have {self.config.num_target_properties} target properties."
                 )
             if y.shape[0] > 0:
-                # Fit the target scaler to the data
+                # Fit the target scaler to the data (only for regression)
                 self.target_scaler.fit(y)
         if additional_inputs is not None:
             if additional_inputs.ndim != 2:
