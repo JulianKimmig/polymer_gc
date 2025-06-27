@@ -130,8 +130,9 @@ def main():
             if (index + 1) % 500 == 0:
                 session.commit()
 
-
-        SQLStructureModel.batch_get_embedding(list(index_to_structure.values()), "PolyBERT")
+        SQLStructureModel.batch_get_embedding(
+            list(index_to_structure.values()), "PolyBERT"
+        )
         # Final commit to save any remaining entries
         session.commit()
         print("--- Database population complete. ---")

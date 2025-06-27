@@ -45,7 +45,7 @@ model_file = main_dir / "tg_model.pt"
 graph_data_file = data_dir / "tg_graph_data.pt"
 if graph_data_file.exists():
     print(f"Loading cached data from {graph_data_file}...")
-    all_graph_data = torch.load(graph_data_file,weights_only=False  )
+    all_graph_data = torch.load(graph_data_file, weights_only=False)
 else:
     print("Processing data from database...")
     with SessionManager(db_path) as session:
@@ -131,6 +131,7 @@ model_config = PolyGCBaseModel.ModelConfig(
     # For regression, we define the output dimension directly.
     # We are predicting one property (Tg), and the model will output
     # two values for it: mean (mu) and log-variance (log_sigma_sq).
+    gc_features=256,
     num_target_properties=1,
     num_gnn_layers=4,
     mlp_layer=3,
@@ -151,10 +152,16 @@ if model_file.exists():
 
 model = model.to(device)
 
-model.prefit(x=torch.cat([g.x for g in train_graphs], dim=0).to(device),y=torch.cat([g.y for g in train_graphs], dim=0).to(device))   
+model.prefit(
+    x=torch.cat([g.x for g in train_graphs], dim=0).to(device),
+    y=torch.cat([g.y for g in train_graphs], dim=0).to(device),
+)
 optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-5)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer, "min", factor=0.5, patience=15, 
+    optimizer,
+    "min",
+    factor=0.5,
+    patience=15,
 )
 
 # --- Training Loop ---
@@ -163,64 +170,69 @@ best_val_loss = float("inf")
 patience_counter = 0
 patience_epochs = 40  # Early stopping patience
 
-for epoch in range(EPOCHS):
-    model.train()
-    total_train_loss = 0
-    for batch in tqdm(
-        train_loader, desc=f"Epoch {epoch + 1:03d}/{EPOCHS} [Train]", leave=False
-    ):
-        batch = batch.to(device)
-        optimizer.zero_grad()
-        # The model's batch_loss should internally use GaussianNLLLoss
-        loss = model.batch_loss(batch, "train")
-        loss.backward()
-        optimizer.step()
-        total_train_loss += loss.item() * batch.num_graphs
-
-    avg_train_loss = total_train_loss / len(train_loader.dataset)
-
-    # --- Validation Step ---
-    model.eval()
-    total_val_loss = 0
-    all_val_preds_mu = []
-    all_val_true = []
-    with torch.no_grad():
+try:
+    for epoch in range(EPOCHS):
+        model.train()
+        total_train_loss = 0
         for batch in tqdm(
-            val_loader, desc=f"Epoch {epoch + 1:03d}/{EPOCHS} [Val]", leave=False
+            train_loader, desc=f"Epoch {epoch + 1:03d}/{EPOCHS} [Train]", leave=False
         ):
             batch = batch.to(device)
-            total_val_loss += model.batch_loss(batch, "val").item() * batch.num_graphs
-            # model.predict should return a tensor of shape [N, 2] for [mu, log_var]
-            mean_preds,log_var_preds = model.predict(batch)
-            all_val_preds_mu.append(mean_preds.cpu())
-            all_val_true.append(batch.y.cpu())
+            optimizer.zero_grad()
+            # The model's batch_loss should internally use GaussianNLLLoss
+            loss = model.batch_loss(batch, "train")
+            loss.backward()
+            optimizer.step()
+            total_train_loss += loss.item() * batch.num_graphs
 
-    avg_val_loss = total_val_loss / len(val_loader.dataset)
+        avg_train_loss = total_train_loss / len(train_loader.dataset)
 
-    # Calculate validation metrics
-    val_preds_mu = torch.cat(all_val_preds_mu).numpy()
-    val_true = torch.cat(all_val_true).numpy()
-    val_mae = mean_absolute_error(val_true, val_preds_mu)
+        # --- Validation Step ---
+        model.eval()
+        total_val_loss = 0
+        all_val_preds_mu = []
+        all_val_true = []
+        with torch.no_grad():
+            for batch in tqdm(
+                val_loader, desc=f"Epoch {epoch + 1:03d}/{EPOCHS} [Val]", leave=False
+            ):
+                batch = batch.to(device)
+                total_val_loss += (
+                    model.batch_loss(batch, "val").item() * batch.num_graphs
+                )
+                # model.predict should return a tensor of shape [N, 2] for [mu, log_var]
+                mean_preds, log_var_preds = model.predict(batch)
+                all_val_preds_mu.append(mean_preds.cpu())
+                all_val_true.append(batch.y.cpu())
 
-    scheduler.step(avg_val_loss)
+        avg_val_loss = total_val_loss / len(val_loader.dataset)
 
-    print(
-        f"Epoch {epoch + 1:03d} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Val MAE: {val_mae:.2f} K"
-    )
+        # Calculate validation metrics
+        val_preds_mu = torch.cat(all_val_preds_mu).numpy()
+        val_true = torch.cat(all_val_true).numpy()
+        val_mae = mean_absolute_error(val_true, val_preds_mu)
 
-    # Save best model and check for early stopping
-    if avg_val_loss < best_val_loss:
-        best_val_loss = avg_val_loss
-        torch.save(model.state_dict(), model_file)
-        print(f"  -> New best model saved to {model_file}")
-        patience_counter = 0
-    else:
-        patience_counter += 1
-        if patience_counter >= patience_epochs:
-            print(
-                f"Early stopping triggered after {patience_epochs} epochs without improvement."
-            )
-            break
+        scheduler.step(avg_val_loss)
+
+        print(
+            f"Epoch {epoch + 1:03d} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Val MAE: {val_mae:.2f} K"
+        )
+
+        # Save best model and check for early stopping
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            torch.save(model.state_dict(), model_file)
+            print(f"  -> New best model saved to {model_file}")
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience_epochs:
+                print(
+                    f"Early stopping triggered after {patience_epochs} epochs without improvement."
+                )
+                break
+except KeyboardInterrupt:
+    print("Training interrupted by user.")
 
 # --- Final Evaluation on Test Set ---
 print("\n--- Final Evaluation on Test Set ---")
@@ -236,7 +248,7 @@ all_embeddings = []
 with torch.no_grad():
     for batch in tqdm(test_loader, desc="Evaluating on Test Set"):
         batch = batch.to(device)
-        mean_preds,log_var_preds = model.predict(batch)
+        mean_preds, log_var_preds = model.predict(batch)
         embeddings = model.predict_embedding(batch)
 
         # mu is the first column of the output
@@ -311,7 +323,7 @@ plt.close()
 
 # 3. t-SNE Plot of Embeddings
 print("\nGenerating t-SNE plot of embeddings...")
-tsne = TSNE(n_components=2, verbose=0, perplexity=30, n_iter=1000, random_state=SEED)
+tsne = TSNE(n_components=2, verbose=0, perplexity=30, max_iter=1000, random_state=SEED)
 tsne_results = tsne.fit_transform(embeddings_all)
 
 plt.figure(figsize=(10, 8))
