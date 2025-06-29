@@ -397,7 +397,7 @@ class GradientMixin:
         n_monomers = np.random.RandomState(self._inner_seed + entry_index).randint(
             self.MIN_MONOMERS, self.MAX_MONOMERS + 1
         )
-        min_threshold = 1 / (4 * n_monomers)
+        min_threshold = 1 / (3 * n_monomers)
         while True:
             monomer_ratios = self.rng.dirichlet(np.ones(n_monomers), size=1)[0]
             monomer_ratios = np.round(monomer_ratios, 1)
