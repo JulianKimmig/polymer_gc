@@ -34,7 +34,6 @@ from polymer_gc.model.base import PolyGCBaseModel
 # Global settings
 SEED = 42
 EPOCHS = 0  # Set to 0 to skip training and use existing model
-DPI = 600
 BATCH_SIZE = 128
 LEARNING_RATE = 0.001
 
@@ -55,63 +54,19 @@ torch.manual_seed(SEED)
 # =============================================================================
 # PLOTTING STYLE CONFIGURATION
 # =============================================================================
+from polymer_gc.plots import (
+    FIGSIZE,
+    CBAR_FONT_SIZE,
+    CBAR_TICKS_FONT_SIZE,
+    AXIS_LABEL_FONT_SIZE,
+    TITLE_FONT_SIZE,
+    LEGEND_TITLE_FONT_SIZE,
+    LEGEND_LABEL_FONT_SIZE,
+    TICK_LABEL_FONT_SIZE,
+    ANNOTATION_FONT_SIZE,
+    DPI,
+)
 
-FIGSIZE = (10, 8)
-CBAR_FONT_SIZE = 16
-CBAR_TICKS_FONT_SIZE = 14
-AXIS_LABEL_FONT_SIZE = 21
-TITLE_FONT_SIZE = 22
-LEGEND_TITLE_FONT_SIZE = 18
-LEGEND_LABEL_FONT_SIZE = 16
-TICK_LABEL_FONT_SIZE = 20
-ANNOTATION_FONT_SIZE = 14
-
-
-def setup_plotting_style():
-    """Configure matplotlib and seaborn for consistent, publication-quality plots"""
-
-    # Set the style
-    plt.style.use("seaborn-v0_8-whitegrid")
-
-    # Configure matplotlib
-    plt.rcParams.update(
-        {
-            # Figure settings
-            "figure.figsize": FIGSIZE,
-            "figure.dpi": 300,
-            "savefig.dpi": DPI,
-            "savefig.bbox": "tight",
-            # Font settings - Larger fonts for publication multi-plot figures
-            "font.family": "sans-serif",
-            "font.sans-serif": ["Arial", "DejaVu Sans"],
-            "font.size": 16,  # Increased from 12
-            "axes.titlesize": 32,  # Increased from 16
-            "axes.labelsize": 24,  # Increased from 14
-            "axes.labelweight": "bold",  # Make axis labels bold
-            "xtick.labelsize": TICK_LABEL_FONT_SIZE,  # Increased from 12
-            "ytick.labelsize": TICK_LABEL_FONT_SIZE,  # Increased from 12
-            "legend.fontsize": 24,  # Increased from 12
-            # Line settings
-            "lines.linewidth": 2,
-            "lines.markersize": 8,
-            # Grid settings
-            "grid.alpha": 0.3,
-            "grid.linestyle": "--",
-            # Color settings
-            "axes.prop_cycle": plt.cycler("color", sns.color_palette("husl", 10)),
-            # Layout
-            "figure.autolayout": True,
-            "figure.constrained_layout.use": True,
-        }
-    )
-
-    # Configure seaborn
-    sns.set_context("paper", font_scale=1.2)
-    sns.set_palette("husl")
-
-
-# Apply plotting style
-setup_plotting_style()
 
 # Color palettes for different plot types
 COLOR_PALETTES = {
@@ -135,6 +90,62 @@ COLOR_PALETTES = {
     "bar_chart": "tab20",  # Changed from 'husl' to valid matplotlib colormap
     "graph_nodes": "viridis",
 }
+
+# Class name mapping for display in plots
+# Maps original class names to user-friendly display names
+# Leave empty dict {} to use original names, or add mappings like:
+# CLASS_NAME_MAPPING = {
+#     "original_class_name": "Display Name",
+#     "BranchingBlock": "Branching Block",
+#     "CrossLinkedGradient": "Cross-Linked Gradient",
+#     "LinearHomopolymer": "Linear Homopolymer",
+# }
+CLASS_NAME_MAPPING = {
+    # Architecture mappings
+    "BranchingBlock": "Branching Block",
+    "BranchingGradient": "Branching Gradient",
+    "BranchingHomopolymer": "Branching Homopolymer",
+    "BranchingRandomCopolymer": "Branching Random Copolymer",
+    "CrossLinkedBlock": "Cross-Linked Block",
+    "CrossLinkedGradient": "Cross-Linked Gradient",
+    "CrossLinkedHomopolymer": "Cross-Linked Homopolymer",
+    "CrossLinkedRandomCopolymer": "Cross-Linked Random Copolymer",
+    "LinearBlock": "Linear Block",
+    "LinearGradient": "Linear Gradient",
+    "LinearHomopolymer": "Linear Homopolymer",
+    "LinearRandomCopolymer": "Linear Random Copolymer",
+    "StarBlock": "Star Block",
+    "StarGradient": "Star Gradient",
+    "StarHomopolymer": "Star Homopolymer",
+    "StarRandomCopolymer": "Star Random Copolymer",
+    # Structure mappings (add as needed)
+    "branched": "Branched",
+    "branching": "Branched",
+    "crosslinked": "Cross-linked",
+    "cross_linked": "Cross-linked",
+    "linear": "Linear",
+    "star": "Star",
+    "block": "Block",
+    "gradient": "Gradient",
+    "homopolymer": "Homopolymer",
+    "random": "Random",
+    "random_copolymer": "Random",
+}
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+
+def map_class_names(class_names):
+    """Apply class name mapping for display purposes."""
+    if isinstance(class_names, list):
+        return [CLASS_NAME_MAPPING.get(name, name) for name in class_names]
+    elif isinstance(class_names, str):
+        return CLASS_NAME_MAPPING.get(class_names, class_names)
+    else:
+        return class_names
+
 
 # =============================================================================
 # DATA LOADING UTILITIES
@@ -372,6 +383,9 @@ def plot_confusion_matrix(y_true, y_pred, class_names, title, save_path):
     """Plot confusion matrix with consistent styling."""
     cm = confusion_matrix(y_true, y_pred)
 
+    # Map class names for display
+    display_names = map_class_names(class_names)
+
     plt.figure(
         # figsize=(8, 6)
     )
@@ -380,8 +394,8 @@ def plot_confusion_matrix(y_true, y_pred, class_names, title, save_path):
         annot=True,
         fmt="d",
         cmap=COLOR_PALETTES["confusion_matrix"],
-        xticklabels=class_names,
-        yticklabels=class_names,
+        xticklabels=display_names,
+        yticklabels=display_names,
         cbar_kws={"label": "Count"},
         square=True,
         annot_kws={"size": ANNOTATION_FONT_SIZE},  # Annotation font size
@@ -418,6 +432,9 @@ def plot_probability_matrix(y_true, y_probas, class_names, title, save_path):
         if np.sum(mask) > 0:
             prob_cm[true_class_idx, :] = np.mean(y_probas[mask], axis=0)
 
+    # Map class names for display
+    display_names = map_class_names(class_names)
+
     plt.figure(
         # figsize=(10, 8)
     )
@@ -426,8 +443,8 @@ def plot_probability_matrix(y_true, y_probas, class_names, title, save_path):
         annot=True,
         fmt=".2f",
         cmap=COLOR_PALETTES["probability_matrix"],
-        xticklabels=class_names,
-        yticklabels=class_names,
+        xticklabels=display_names,
+        yticklabels=display_names,
         cbar_kws={"label": "Average Probability"},
         square=True,
         annot_kws={"size": ANNOTATION_FONT_SIZE},  # Annotation font size
@@ -466,6 +483,9 @@ def plot_roc_curves(y_true, y_probas, class_names, title, save_path):
         fpr[i], tpr[i], _ = roc_curve(y_true_bin[:, i], y_probas[:, i])
         roc_auc[i] = auc(fpr[i], tpr[i])
 
+    # Map class names for display
+    display_names = map_class_names(class_names)
+
     plt.figure(
         # figsize=(10, 8)
     )
@@ -477,10 +497,10 @@ def plot_roc_curves(y_true, y_probas, class_names, title, save_path):
             tpr[i],
             color=color,
             lw=2,
-            label=f"{class_names[i]} (AUC = {roc_auc[i]:.2f})",
+            label=f"{display_names[i]} (AUC = {roc_auc[i]:.2f})",
         )
 
-    plt.plot([0, 1], [0, 1], "k--", lw=2, label="Random")
+    plt.plot([0, 1], [0, 1], "k--", lw=2)
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
     plt.xlabel("False Positive Rate", fontsize=AXIS_LABEL_FONT_SIZE, weight="bold")
@@ -524,7 +544,10 @@ def plot_tsne_embeddings(embeddings, labels, class_names, title, save_path):
     # Add colorbar with class labels
     cbar = plt.colorbar(scatter, ticks=range(len(class_names)))
     cbar.set_label("Class", fontsize=CBAR_FONT_SIZE, weight="bold")
-    cbar.ax.set_yticklabels(class_names, fontsize=CBAR_TICKS_FONT_SIZE)
+
+    # Map class names for display
+    display_names = map_class_names(class_names)
+    cbar.ax.set_yticklabels(display_names, fontsize=CBAR_TICKS_FONT_SIZE)
 
     plt.title(title, fontsize=TITLE_FONT_SIZE)
     plt.xlabel("t-SNE Dimension 1", fontsize=AXIS_LABEL_FONT_SIZE, weight="bold")
@@ -546,10 +569,13 @@ def plot_probability_bars(y_true, y_probas, class_names, title, save_path):
         if np.sum(mask) > 0:
             avg_probs[true_class_idx] = np.mean(y_probas[mask], axis=0)
 
+    # Map class names for display
+    display_names = map_class_names(class_names)
+
     # Create DataFrame for easier plotting
     data = []
-    for i, true_class in enumerate(class_names):
-        for j, pred_class in enumerate(class_names):
+    for i, true_class in enumerate(display_names):
+        for j, pred_class in enumerate(display_names):
             data.append(
                 {
                     "True Class": true_class,
@@ -596,6 +622,191 @@ def plot_probability_bars(y_true, y_probas, class_names, title, save_path):
     plt.close()
 
 
+def plot_combined_probability_bars(
+    y_true, y_probas, class_names_per_task, target_names, save_path
+):
+    """Plot combined probability bar charts for both tasks side by side."""
+    fig, axes = plt.subplots(1, 2, figsize=(24, 10))
+
+    # Process each task
+    for task_idx, task_name in enumerate(target_names):
+        ax = axes[task_idx]
+        y_true_task = y_true[:, task_idx]
+        y_probas_task = y_probas[task_idx]
+        class_names = class_names_per_task[task_idx]
+        num_classes = len(class_names)
+
+        # Calculate average probabilities
+        avg_probs = np.zeros((num_classes, num_classes))
+        for i in range(num_classes):
+            mask = y_true_task == i
+            if np.sum(mask) > 0:
+                avg_probs[i, :] = np.mean(y_probas_task[mask], axis=0)
+
+        # Map class names for display
+        display_names = map_class_names(class_names)
+
+        # Prepare data for plotting
+        data = []
+        for i, true_class in enumerate(display_names):
+            for j, pred_class in enumerate(display_names):
+                data.append(
+                    {
+                        "True Class": true_class,
+                        "Predicted Class": pred_class,
+                        "Average Probability": avg_probs[i, j],
+                    }
+                )
+
+        df = pd.DataFrame(data)
+
+        # Pivot for grouped bars
+        df_pivot = df.pivot(
+            index="True Class", columns="Predicted Class", values="Average Probability"
+        )
+
+        # Create bar plot
+        df_pivot.plot(
+            kind="bar",
+            ax=ax,
+            colormap=COLOR_PALETTES["bar_chart"],
+            width=0.8,
+            edgecolor="black",
+            linewidth=0.5,
+        )
+
+        # Formatting for each subplot
+        ax.set_title(f"{task_name.replace('_', ' ').title()}", fontsize=TITLE_FONT_SIZE)
+        ax.set_xlabel("True Class", fontsize=AXIS_LABEL_FONT_SIZE, weight="bold")
+        ax.set_ylabel(
+            "Average Probability", fontsize=AXIS_LABEL_FONT_SIZE, weight="bold"
+        )
+        ax.tick_params(axis="x", rotation=45, labelsize=TICK_LABEL_FONT_SIZE)
+        ax.tick_params(axis="y", labelsize=TICK_LABEL_FONT_SIZE)
+
+        # Legend formatting
+        ax.legend(
+            title="Predicted Class",
+            bbox_to_anchor=(1.02, 1),
+            loc="upper left",
+            fontsize=LEGEND_LABEL_FONT_SIZE,
+            title_fontsize=LEGEND_TITLE_FONT_SIZE,
+        )
+
+        # Grid
+        ax.grid(axis="y", alpha=0.3)
+
+    # Set overall title
+    fig.suptitle(
+        f"Probability Distributions Comparison: {target_names[0].replace('_', ' ').title()} vs {target_names[1].replace('_', ' ').title()}",
+        fontsize=TITLE_FONT_SIZE + 2,
+        y=0.95,
+    )
+
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.88)  # Make room for title
+    plt.savefig(save_path, bbox_inches="tight")
+    plt.close()
+
+
+def plot_combined_probability_matrices(
+    y_true, y_probas, class_names_per_task, target_names, save_path
+):
+    """Plot combined probability matrices for both tasks side by side."""
+    fig, axes = plt.subplots(1, 2, figsize=(20, 8))
+
+    # Calculate global min/max for consistent color scaling
+    all_prob_matrices = []
+
+    for task_idx, task_name in enumerate(target_names):
+        y_true_task = y_true[:, task_idx]
+        y_probas_task = y_probas[task_idx]
+        class_names = class_names_per_task[task_idx]
+        num_classes = len(class_names)
+
+        prob_cm = np.zeros((num_classes, num_classes))
+        for true_class_idx in range(num_classes):
+            mask = y_true_task == true_class_idx
+            if np.sum(mask) > 0:
+                prob_cm[true_class_idx, :] = np.mean(y_probas_task[mask], axis=0)
+
+        all_prob_matrices.append(prob_cm)
+
+    # Find global min/max for consistent color scaling
+    vmin = min(matrix.min() for matrix in all_prob_matrices)
+    vmax = max(matrix.max() for matrix in all_prob_matrices)
+
+    # Plot each task's probability matrix
+    for task_idx, task_name in enumerate(target_names):
+        ax = axes[task_idx]
+        prob_cm = all_prob_matrices[task_idx]
+        class_names = class_names_per_task[task_idx]
+
+        # Map class names for display
+        display_names = map_class_names(class_names)
+
+        # Create heatmap
+        im = ax.imshow(
+            prob_cm,
+            cmap=COLOR_PALETTES["probability_matrix"],
+            vmin=vmin,
+            vmax=vmax,
+            aspect="equal",
+        )
+
+        # Add text annotations
+        for i in range(len(class_names)):
+            for j in range(len(class_names)):
+                text = ax.text(
+                    j,
+                    i,
+                    f"{prob_cm[i, j]:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=ANNOTATION_FONT_SIZE,
+                    color="white"
+                    if prob_cm[i, j] < (vmax - vmin) / 2 + vmin
+                    else "black",
+                )
+
+        # Set labels and ticks
+        ax.set_xticks(range(len(class_names)))
+        ax.set_yticks(range(len(class_names)))
+        ax.set_xticklabels(
+            display_names, fontsize=TICK_LABEL_FONT_SIZE, rotation=45, ha="right"
+        )
+        ax.set_yticklabels(
+            display_names, fontsize=TICK_LABEL_FONT_SIZE, rotation=45, ha="right"
+        )
+
+        ax.set_xlabel("Predicted Label", fontsize=AXIS_LABEL_FONT_SIZE, weight="bold")
+        ax.set_ylabel("True Label", fontsize=AXIS_LABEL_FONT_SIZE, weight="bold")
+        # ax.set_title(f"{task_name.replace('_', ' ').title()}", fontsize=TITLE_FONT_SIZE)
+
+        # Add grid
+        ax.set_xticks(np.arange(len(class_names) + 1) - 0.5, minor=True)
+        ax.set_yticks(np.arange(len(class_names) + 1) - 0.5, minor=True)
+        ax.grid(which="minor", color="white", linestyle="-", linewidth=1)
+        ax.tick_params(which="minor", size=0)
+
+    # Add single colorbar for both subplots
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])  # [left, bottom, width, height]
+    cbar = fig.colorbar(im, cax=cbar_ax)
+    cbar.set_label("Average Probability", fontsize=CBAR_FONT_SIZE, weight="bold")
+    cbar.ax.tick_params(labelsize=CBAR_TICKS_FONT_SIZE)
+
+    # Set overall title
+    # fig.suptitle(
+    #     f"Probability Matrices Comparison: {target_names[0].replace('_', ' ').title()} vs {target_names[1].replace('_', ' ').title()}",
+    #     fontsize=TITLE_FONT_SIZE + 2, y=0.95
+    # )
+
+    plt.tight_layout()
+    plt.subplots_adjust(right=0.9, top=0.88)  # Make room for colorbar and title
+    plt.savefig(save_path, bbox_inches="tight")
+    plt.close()
+
+
 def plot_combined_roc_curves(
     y_true, y_probas, class_names_per_task, target_names, save_path
 ):
@@ -612,6 +823,9 @@ def plot_combined_roc_curves(
         y_true_task = y_true[:, task_idx]
         y_probas_task = y_probas[task_idx]
         class_names = class_names_per_task[task_idx]
+
+        # Map class names for display
+        display_names = map_class_names(class_names)
 
         # Binarize labels for multiclass ROC
         y_true_bin = label_binarize(y_true_task, classes=range(len(class_names)))
@@ -635,11 +849,11 @@ def plot_combined_roc_curves(
                 linestyle=line_styles[task_idx],
                 # alpha=0.7,
                 linewidth=2,
-                label=f"{class_names[i]} (AUC = {roc_auc[i]:.2f})",  # {task_name.replace("_", " ").title()}:
+                label=f"{display_names[i]} (AUC = {roc_auc[i]:.2f})",  # {task_name.replace("_", " ").title()}:
             )
 
     # Plot diagonal reference line
-    plt.plot([0, 1], [0, 1], "k--", lw=2, alpha=0.5, label="Random (AUC = 0.50)")
+    plt.plot([0, 1], [0, 1], "k--", lw=2, alpha=0.5)
 
     # Formatting
     plt.xlim([0.0, 1.0])
@@ -723,6 +937,10 @@ def plot_combined_tsne(
     arch_classes = class_names_per_task[0]
     struct_classes = class_names_per_task[1]
 
+    # Map class names for display
+    arch_display_names = map_class_names(arch_classes)
+    struct_display_names = map_class_names(struct_classes)
+
     # Create color map for architecture (first task)
     arch_colors = getattr(plt.cm, COLOR_PALETTES["tsne"])(
         np.linspace(0, 1, len(arch_classes))
@@ -767,7 +985,7 @@ def plot_combined_tsne(
                     alpha=0.8,
                     edgecolors="black",
                     linewidth=0.8,
-                    label=f"{arch_name} ({struct_name})"
+                    label=f"{map_class_names(arch_name)} ({map_class_names(struct_name)})"
                     if (arch_name, struct_name) not in plotted_combinations
                     else "",
                 )
@@ -776,7 +994,7 @@ def plot_combined_tsne(
     # Create custom legends
     # Architecture legend (colors)
     arch_legend_elements = []
-    for arch_name, color in arch_color_map.items():
+    for i, (arch_name, color) in enumerate(arch_color_map.items()):
         arch_legend_elements.append(
             plt.Line2D(
                 [0],
@@ -786,13 +1004,13 @@ def plot_combined_tsne(
                 markerfacecolor=color,
                 markersize=12,
                 markeredgecolor="black",
-                label=arch_name,
+                label=arch_display_names[i],
             )
         )
 
     # Structure legend (markers)
     struct_legend_elements = []
-    for struct_name, marker in struct_marker_map.items():
+    for i, (struct_name, marker) in enumerate(struct_marker_map.items()):
         struct_legend_elements.append(
             plt.Line2D(
                 [0],
@@ -802,7 +1020,7 @@ def plot_combined_tsne(
                 markerfacecolor="gray",
                 markersize=12,
                 markeredgecolor="black",
-                label=struct_name,
+                label=struct_display_names[i],
             )
         )
 
@@ -851,7 +1069,7 @@ def plot_worst_predictions(
     class_names_per_task,
     target_names,
     save_path,
-    n_top=10,
+    n_top=20,
 ):
     """Visualize the most confident misclassifications."""
     print(f"\nIdentifying top {n_top} confident misclassifications...")
@@ -883,7 +1101,7 @@ def plot_worst_predictions(
         return
 
     # Create visualization
-    fig = plt.figure(figsize=(20, 4 * ((n_top + 4) // 5)))
+    fig = plt.figure(figsize=(25, 5 * ((n_top + 4) // 5)))
     gs = GridSpec(((n_top + 4) // 5), 5, figure=fig, hspace=0.4, wspace=0.3)
 
     for idx, error in enumerate(top_errors):
@@ -916,16 +1134,21 @@ def plot_worst_predictions(
         true_name = class_names_per_task[error["task_idx"]][error["true_label"]]
         pred_name = class_names_per_task[error["task_idx"]][error["pred_label"]]
 
+        # Map class names for display
+        true_display_name = map_class_names(true_name)
+        pred_display_name = map_class_names(pred_name)
+
         ax.set_title(
             f"#{idx + 1}: {task_name}\n"
-            f"Pred: {pred_name} ({error['error_prob']:.1%})\n"
-            f"True: {true_name} ({error['true_prob']:.1%})",
+            f"Pred: {pred_display_name} ({error['error_prob']:.1%})\n"
+            f"True: {true_display_name} ({error['true_prob']:.1%})",
             fontsize=AXIS_LABEL_FONT_SIZE,  # Increased from 10 for better readability
         )
         ax.axis("off")
 
     plt.suptitle(
-        f"Top {len(top_errors)} Most Confident Misclassifications", fontsize=TITLE_FONT_SIZE
+        f"Top {len(top_errors)} Most Confident Misclassifications",
+        fontsize=TITLE_FONT_SIZE,
     )
     plt.savefig(save_path)
     plt.close()
@@ -949,9 +1172,12 @@ def generate_analysis_report(
             y_pred_task = y_pred[:, i]
             class_names = class_names_per_task[i]
 
+            # Map class names for display
+            display_names = map_class_names(class_names)
+
             # Classification report
             report = classification_report(
-                y_true_task, y_pred_task, target_names=class_names, digits=3
+                y_true_task, y_pred_task, target_names=display_names, digits=3
             )
             f.write("Classification Report:\n")
             f.write(report)
@@ -961,7 +1187,7 @@ def generate_analysis_report(
             cm = confusion_matrix(y_true_task, y_pred_task)
             f.write("Confusion Matrix:\n")
             f.write(
-                pd.DataFrame(cm, index=class_names, columns=class_names).to_string()
+                pd.DataFrame(cm, index=display_names, columns=display_names).to_string()
             )
             f.write("\n\n")
 
@@ -1103,6 +1329,22 @@ def main():
         class_names_per_task,
         target_names,
         RESULT_DIR / "combined_roc_curves.png",
+    )
+
+    plot_combined_probability_matrices(
+        y_true,
+        y_probas,
+        class_names_per_task,
+        target_names,
+        RESULT_DIR / "combined_probability_matrices.png",
+    )
+
+    plot_combined_probability_bars(
+        y_true,
+        y_probas,
+        class_names_per_task,
+        target_names,
+        RESULT_DIR / "combined_probability_bars.png",
     )
 
     plot_combined_tsne(
