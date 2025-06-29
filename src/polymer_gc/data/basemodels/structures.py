@@ -1,5 +1,5 @@
 from typing import Optional, List
-from sqlmodel import Column, JSON, Field, Relationship, UniqueConstraint
+from sqlmodel import Column, JSON, Field, Relationship, UniqueConstraint, select
 from pydantic import model_validator
 from rdkit import Chem
 from rdkit.Chem import Descriptors
@@ -7,6 +7,7 @@ from polymer_gc.embeddings import DEFAULT_EMBEDDINGS
 from polymer_gc.data.database import SessionRegistry
 from .core import Base
 import numpy as np
+
 
 def calculate_mass_from_smiles(smiles: str) -> float:
     """
@@ -53,24 +54,35 @@ class SQLStructureModel(Base, table=True):
     @property
     def name_or_smiles(self):
         return self.name or self.smiles
-    
+
     @classmethod
     def batch_get_embedding(cls, structs, embedding_name: str):
         smiles = [struct.smiles for struct in structs]
         with SessionRegistry.get_session() as session:
-            embeddings = DEFAULT_EMBEDDINGS[embedding_name].batch_calculate_embedding(smiles).tolist()
-            emb= [
-                SQLStructureEmbedding.get_or_create(
-                name=embedding_name,
-                structure_id=struct.id,
-                set_kwargs={
-                    "value": embedding,
-                    "structure": struct,
-                },
-                commit=False
-            )
-                for struct, embedding in zip(structs, embeddings)]
-            session.commit()
+            existing =session.exec(select(SQLStructureEmbedding).where(SQLStructureEmbedding.structure_id.in_([struct.id for struct in structs]))).all()
+            existing_dict = {emb.structure_id: emb for emb in existing}
+            missing_structs = [struct for struct in structs if struct.id not in existing_dict]
+            if len(missing_structs) > 0:
+                missing_smiles = [struct.smiles for struct in missing_structs]
+                missing_embeddings = (
+                    DEFAULT_EMBEDDINGS[embedding_name]
+                    .batch_calculate_embedding(missing_smiles)
+                )
+                new_emb = {struct.id: SQLStructureEmbedding.get_or_create(
+                        name=embedding_name,
+                        structure_id=struct.id,
+                        set_kwargs={
+                            "value": embedding,
+                            "structure": struct,
+                        },
+                        commit=False,
+                    )
+                    for struct, embedding in zip(missing_structs, missing_embeddings)
+                }
+                session.commit()
+                existing_dict.update(new_emb)
+            embeddings = [existing_dict[struct.id].value for struct in structs]
+            
         return embeddings
 
     def get_embedding(self, embedding_name: str, create_if_not_exists: bool = True):
@@ -88,7 +100,7 @@ class SQLStructureModel(Base, table=True):
             )
         embedding = DEFAULT_EMBEDDINGS[embedding_name].calculate_embedding(self.smiles)
         if isinstance(embedding, np.ndarray):
-            embedding =  embedding.tolist()
+            embedding = embedding.tolist()
         emb = SQLStructureEmbedding.get_or_create(
             name=embedding_name,
             structure_id=self.id,
