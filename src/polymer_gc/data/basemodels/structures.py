@@ -59,16 +59,24 @@ class SQLStructureModel(Base, table=True):
     def batch_get_embedding(cls, structs, embedding_name: str):
         smiles = [struct.smiles for struct in structs]
         with SessionRegistry.get_session() as session:
-            existing =session.exec(select(SQLStructureEmbedding).where(SQLStructureEmbedding.structure_id.in_([struct.id for struct in structs]))).all()
+            existing = session.exec(
+                select(SQLStructureEmbedding).where(
+                    SQLStructureEmbedding.structure_id.in_(
+                        [struct.id for struct in structs]
+                    )
+                )
+            ).all()
             existing_dict = {emb.structure_id: emb for emb in existing}
-            missing_structs = [struct for struct in structs if struct.id not in existing_dict]
+            missing_structs = [
+                struct for struct in structs if struct.id not in existing_dict
+            ]
             if len(missing_structs) > 0:
                 missing_smiles = [struct.smiles for struct in missing_structs]
-                missing_embeddings = (
-                    DEFAULT_EMBEDDINGS[embedding_name]
-                    .batch_calculate_embedding(missing_smiles)
-                )
-                new_emb = {struct.id: SQLStructureEmbedding.get_or_create(
+                missing_embeddings = DEFAULT_EMBEDDINGS[
+                    embedding_name
+                ].batch_calculate_embedding(missing_smiles)
+                new_emb = {
+                    struct.id: SQLStructureEmbedding.get_or_create(
                         name=embedding_name,
                         structure_id=struct.id,
                         set_kwargs={
@@ -82,7 +90,7 @@ class SQLStructureModel(Base, table=True):
                 session.commit()
                 existing_dict.update(new_emb)
             embeddings = [existing_dict[struct.id].value for struct in structs]
-            
+
         return embeddings
 
     def get_embedding(self, embedding_name: str, create_if_not_exists: bool = True):

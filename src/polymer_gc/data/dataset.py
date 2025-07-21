@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from sqlmodel import Column, JSON, Field, Relationship, UniqueConstraint, select
 from pydantic import model_validator
 from polymcsim.schemas import SimulationInput
@@ -11,10 +11,11 @@ from .graphs import ReusableGraphEntry
 import numpy as np
 from tqdm import tqdm
 from sqlalchemy.orm import joinedload
+from collections import defaultdict
+import json
+
 
 class PgDatasetConfig(BaseModel):
-    id: Optional[int] = Field(default=None, primary_key=True)
-
     embedding: str = Field(
         "PolyBERT",
         description="Embedding method to be used. PolyBERT as default.",
@@ -109,6 +110,15 @@ class Dataset(Base, table=True):
     name: str = Field(unique=True)
     items: List[DatasetItem] = Relationship(back_populates="dataset")
 
+    @classmethod
+    @classmethod
+    def fill_values(cls, **kwargs):
+        if "config" in kwargs:
+            kwargs["dict_config"] = PgDatasetConfig.model_validate(
+                kwargs["config"]
+            ).model_dump()
+        return kwargs
+
     @model_validator(mode="before")
     @classmethod
     def check_config(cls, data):
@@ -130,7 +140,7 @@ class Dataset(Base, table=True):
     def config(self, value: PgDatasetConfig):
         self.dict_config = value.model_dump()
 
-    def load_entries_data(self):
+    def load_entries_data(self, items: Optional[List[Union[DatasetItem, int]]] = None):
         all_embeddings = {}
         entries = []
         all_graphs = []
@@ -138,26 +148,78 @@ class Dataset(Base, table=True):
         all_entry_graphs = []
         cg = 0
         required_structureids = set()
-        for entry in self.items:
+
+        if items is not None:
+            items = set(
+                [it.id if isinstance(it, DatasetItem) else int(it) for it in items]
+            )
+            with SessionRegistry.get_session() as session:
+                items = session.exec(
+                    select(DatasetItem).where(
+                        DatasetItem.id.in_(items), DatasetItem.dataset_id == self.id
+                    )
+                ).all()
+        else:
+            items = self.items
+
+        for entry in items:
             required_structureids.update(list(entry.structure_map.values()))
         required_structureids = list(required_structureids)
         required_structureids.sort()
         with SessionRegistry.get_session() as session:
-            required_structures = session.exec(
-            select(SQLStructureModel).where(
-                SQLStructureModel.id.in_(required_structureids)
-            ).options(joinedload(SQLStructureModel.embeddings))).unique().all()
+            required_structures = (
+                session.exec(
+                    select(SQLStructureModel)
+                    .where(SQLStructureModel.id.in_(required_structureids))
+                    .options(joinedload(SQLStructureModel.embeddings))
+                )
+                .unique()
+                .all()
+            )
             required_structures_dict = {s.id: s for s in required_structures}
 
             # load all embeddings
-            SQLStructureModel.batch_get_embedding(required_structures, self.config.embedding)
-
+            SQLStructureModel.batch_get_embedding(
+                required_structures, self.config.embedding
+            )
+            secs = {}
             # required structures ny id in order
-            for i, entry in tqdm(enumerate(self.items), total=len(self.items), desc="Loading entries data"):
+            for entry_idx, entry in tqdm(
+                enumerate(items),
+                total=len(items),
+                desc="Loading entries data",
+            ):
                 entries.append(entry)
                 entry_structures: Dict[str_, SQLStructureModel] = {
-                    k: required_structures_dict[v] for k, v in entry.structure_map.items()
+                    k: required_structures_dict[v]
+                    for k, v in entry.structure_map.items()
                 }
+                secentry = entry.sec
+                if secentry is not None:
+                    if secentry.id not in secs:
+                        bin_edges = np.linspace(
+                            self.config.log_start,
+                            self.config.log_end,
+                            self.config.num_bins + 1,
+                        )
+
+                        log_mwd, mwdmasses = secentry.sec.calc_logMW(
+                            10**self.config.log_start, 10**self.config.log_end
+                        )
+                        log_masses = np.log10(mwdmasses)
+                        mask = (log_masses >= self.config.log_start) & (
+                            log_masses <= self.config.log_end
+                        )
+                        filtered_logx = log_masses[mask]
+                        filtered_y = log_mwd[mask, 0]
+                        bin_indices = np.digitize(filtered_logx, bin_edges) - 1
+                        hist = np.zeros(self.config.num_bins)
+                        for bin_idx in range(self.config.num_bins):
+                            values = filtered_y[bin_indices == bin_idx]
+                            if len(values) > 0:
+                                hist[bin_idx] = values.mean()
+                        secs[secentry.id] = hist
+
                 entry_graphs = []
                 for k, v in targets.items():
                     v.append(entry.targets[k])
@@ -177,7 +239,8 @@ class Dataset(Base, table=True):
                             "edges": edges,
                             "entry_id": entry.id,
                             "graph_id": graph.id,
-                            "entry_pos": i,
+                            "entry_pos": entry_idx,
+                            "sec_id": entry.sec_id,
                         }
                     )
                     entry_graphs.append(cg)
@@ -193,9 +256,70 @@ class Dataset(Base, table=True):
             "graphs": all_graphs,
             "entry_graphs": all_entry_graphs,
             "targets": {k: np.array(v) for k, v in targets.items()},
+            "sec": secs,
         }
 
         return data
+
+    def get_distinct_entries(self, by: List[str]):
+        """
+        Group dataset items by distinct combinations of specified fields.
+
+        Args:
+            by: List of field names to group by (e.g., ['mw', 'mn', 'targets'])
+
+        Returns:
+            Tuple of (entry_groups, group_definitions) where:
+            - entry_groups: List of lists, each containing entry IDs for a distinct group
+            - group_definitions: List of dictionaries, each containing the field values that define a group
+
+        Example:
+            If entries have mw=[1,1,2,3] and mn=[2,2,2,2], grouping by ['mw', 'mn'] returns:
+            (
+                [[1, 2], [3], [4]],
+                [{'mw': 1, 'mn': 2}, {'mw': 2, 'mn': 2}, {'mw': 3, 'mn': 2}]
+            )
+        """
+        groups = defaultdict(list)
+
+        for item in self.items:
+            # Extract values for the specified fields
+            field_values = {}
+            for field in by:
+                if hasattr(item, field):
+                    value = getattr(item, field)
+                    # For complex types like dicts/lists, use original value in definition
+                    # but convert to string for grouping key
+                    field_values[field] = value
+                else:
+                    raise ValueError(f"Field '{field}' not found in DatasetItem")
+
+            # Create a hashable key for grouping
+            key_parts = []
+            for field in by:
+                value = field_values[field]
+                if isinstance(value, (dict, list)):
+                    key_parts.append(json.dumps(value, sort_keys=True))
+                else:
+                    key_parts.append(value)
+
+            key = tuple(key_parts)
+            groups[key].append((item.id, field_values))
+
+        # Separate into two lists
+        entry_groups = []
+        group_definitions = []
+
+        for key, items in groups.items():
+            # Extract entry IDs
+            entry_ids = [item[0] for item in items]
+            entry_groups.append(entry_ids)
+
+            # Use the field values from the first item in the group
+            group_definition = items[0][1]
+            group_definitions.append(group_definition)
+
+        return entry_groups, group_definitions
 
 
 class GraphDatasetItemLink(Base, table=True):

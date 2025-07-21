@@ -11,6 +11,9 @@ LEGEND_LABEL_FONT_SIZE = 16
 TICK_LABEL_FONT_SIZE = 20
 ANNOTATION_FONT_SIZE = 20
 DPI = 600
+CONTINUOUS_PALETTE = "viridis"
+DISCRETE_PALETTE = "tab10"
+
 
 def setup_plotting_style():
     """Configure matplotlib and seaborn for consistent, publication-quality plots"""
@@ -43,7 +46,9 @@ def setup_plotting_style():
             "grid.alpha": 0.3,
             "grid.linestyle": "--",
             # Color settings
-            "axes.prop_cycle": plt.cycler("color", sns.color_palette("husl", 10)),
+            "axes.prop_cycle": plt.cycler(
+                "color", sns.color_palette(DISCRETE_PALETTE, 10)
+            ),
             # Layout
             "figure.autolayout": True,
             "figure.constrained_layout.use": True,
@@ -52,7 +57,7 @@ def setup_plotting_style():
 
     # Configure seaborn
     sns.set_context("paper", font_scale=1.2)
-    sns.set_palette("husl")
+    sns.set_palette(DISCRETE_PALETTE)
 
 
 # Apply plotting style

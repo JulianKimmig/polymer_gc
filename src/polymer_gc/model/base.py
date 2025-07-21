@@ -675,6 +675,7 @@ class PolyGCBaseModel(nn.Module):
         cat_tensors = [x_pooled_cat]
         if additional_features is not None:
             cat_tensors.append(self.additional_inputs_scaler(additional_features))
+
         if self.mass_dist_reducer is not None and mass_distribution is not None:
             # batchwise area normalization of mass_distribution
 

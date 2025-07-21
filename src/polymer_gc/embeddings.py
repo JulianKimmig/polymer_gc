@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from rdkit import Chem
-from rdkit.Chem import Descriptors
+from rdkit.Chem import Descriptors, AllChem, MolFromSmiles
 import numpy as np
 from pydantic import BaseModel, Field, model_validator, field_validator
 from typing import List, Optional, Any
@@ -119,8 +119,27 @@ try:
         ) -> List[List[float]]:
             print("batch calculating polyBERT embedding")
             polyBERT = SentenceTransformer("kuelumbus/polyBERT")
-            return polyBERT.encode([s for s in smiles])
+            return polyBERT.encode([s for s in smiles]).tolist()
 
     register_embedding(PolyBERTEmbedding, "PolyBERT")
 except ImportError:
     pass
+
+
+fpgen = AllChem.GetRDKitFPGenerator()
+
+
+class RDKitFP(StructureEmbedding):
+    @classmethod
+    def calculate_embedding(cls, smiles: str) -> List[float]:
+        return np.array(fpgen.GetFingerprint(MolFromSmiles(smiles))).tolist()
+
+    @classmethod
+    def batch_calculate_embedding(
+        cls,
+        smiles: List[str],
+    ) -> List[List[float]]:
+        return [cls.calculate_embedding(s) for s in smiles]
+
+
+register_embedding(RDKitFP, "RDKitFP")
