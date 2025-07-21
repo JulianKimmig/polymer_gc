@@ -7,18 +7,25 @@ requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.13.4",
     "captum>=0.7.0",
+    "h5py>=3.14.0",
     "latex>=0.7.0",
     "lxml>=5.4.0",
     "matplotlib>=3.10.1",
     "networkx>=3.4.2",
     "numba>=0.61.2",
     "numpy>=2.2.4",
+    "polymcsim>=0.8.0",
     "pybind11>=2.13.6",
     "pydantic>=2.11.4",
     "rdkit>=2024.9.6",
+    "rich>=14.0.0",
     "scienceplots>=2.1.1",
     "scipy>=1.15.2",
+    "seaborn>=0.13.2",
     "secanalysis>=0.1.0",
+    "sqlalchemy>=2.0.41",
+    "sqlmodel>=0.0.24",
+    "sync>=1.0.0",
     "torch-geometric>=2.6.1",
     "tqdm>=4.67.1",
     "umap-learn>=0.5.7",
@@ -64,7 +71,13 @@ explicit = true
 [dependency-groups]
 dev = [
     "ipykernel>=6.29.5",
+    "pyinstrument>=5.0.2",
     "pytest>=8.3.5",
+]
+doc = [
+    "myst-parser>=4.0.1",
+    "sphinx>=8.2.3",
+    "sphinx-rtd-theme>=3.0.2",
 ]
 
 
