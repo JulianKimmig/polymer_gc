@@ -143,20 +143,5 @@ optimize(
     k_folds=5,
     ds_name="tg_bayreuth_jena", db_path=db_path,
     training_pipeline_=custom_training_pipeline,
+    storage=f"sqlite:///{Path(__file__).parent /  'optimization.db'}",
 )
-
-
-# DB_PATH = (
-#     Path(__file__).parent.parent / "datasets" / "end_to_end_tg_polybert" / "database_br.db" # / "database_jb.db"
-# )
-# PRE_DS_NAME = "Tg_Prediction_from_CSV"
-# DS_NAME = "tg_bayreuth"# "Tg_Prediction_from_CSV"
-
-
-
-# taining_pipeline(
-#     ds_name=DS_NAME, db_path=DB_PATH, data_dir=DB_PATH.parent / "data", k_folds=5,
-#     result_dir=Path(__file__).parent / "results" / DS_NAME,
-#     pretrained_model_dir=Path(__file__).parent / "results" / PRE_DS_NAME ,
-#     conf={"epochs":2},
-# )
