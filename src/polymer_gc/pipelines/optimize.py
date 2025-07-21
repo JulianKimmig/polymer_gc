@@ -19,6 +19,7 @@ class OptimizationVar(BaseModel):
     choices: Optional[List[Any]] = Field(None)
     k: Optional[int] = Field(default=1)
     k_min: Optional[int] = Field(None)
+    choice_names: Optional[List[str]] = Field(None)
     k_max: Optional[int] = Field(None)
 
     @model_validator(mode="after")
@@ -93,8 +94,13 @@ def make_objective_kfold(
                 else:
                     k = var.k
 
+                if var.choice_names is None:
+                    choice_names = [f"choice_{i}" for i in range(len(var.choices))]
+                else:
+                    choice_names = var.choice_names
+
                 scores = [
-                    trial.suggest_float(f"{var.name}_pick_{i}", 0, 1)
+                    trial.suggest_float(f"{var.name}_{choice_names[i]}", 0, 1)
                     for i in range(len(var.choices))
                 ]
                 selected_indices = np.argsort(scores)[-k:]
