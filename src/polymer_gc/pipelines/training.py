@@ -272,7 +272,7 @@ def train_fold(
     all_graph_data,
     device: torch.device,
     pretrained_model_dir: Optional[Path] = None,
-):
+) -> TrainingResult:
     """
     Train a model on a specific fold.
 
