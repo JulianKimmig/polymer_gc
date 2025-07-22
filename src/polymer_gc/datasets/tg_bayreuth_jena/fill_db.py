@@ -55,50 +55,58 @@ def flory_fox(Mn, Tg_inf, K):
 
 def populate(
         db_path:Path,
-        dataset_name:str="tg_bayreuth_jena",
+        dataset_name:str=None,
         graphs_per_entry:int=20,
         min_monos:int=3,
         max_monos:int=100,
         pg_dataset_config:Optional[PgDatasetConfig]=None,
-        seed:int=42
+        seed:int=42,
+        flory_fox=True,
 ):
     pg_dataset_config = pg_dataset_config or default_pg_dataset_config
     pg_dataset_config.targets = default_pg_dataset_config.targets
     pg_dataset_config.target_classes = None
+    
+    if not dataset_name:
+        if flory_fox:
+            dataset_name = "tg_bayreuth_jena"
+        else:
+            dataset_name = "tg_bayreuth_jena_no_flory_fox"
 
     try:
         df = pd.read_csv(CSV_PATH)
         flory_fox_params_ds = pd.read_csv(FLORY_FOX_PARAMS_CSV_PATH, index_col=0)
 
-        for smiles, data in flory_fox_params_ds.iterrows():
-            if smiles not in df["canonicalized_PSMILES_rep_u1"].values:
-                continue
-            entrymask = (df["canonicalized_PSMILES_rep_u1"] == smiles) & df[
-                "canonicalized_PSMILES_rep_u2"
-            ].isna()
-            min_tm = df[entrymask]["Mn"].min()
-            max_tm = df[entrymask]["Mn"].max()
-            pdi_mean = (df[entrymask]["Mw"] / df[entrymask]["Mn"]).mean()
-            sampled_mns = np.random.RandomState(seed).uniform(np.log(min_tm), np.log(max_tm), 20)
-            sampled_mns = np.exp(sampled_mns)
-            sampled_tgs = flory_fox(sampled_mns, data["Tg_inf"], data["K"])
+        if flory_fox:
+            for smiles, data in flory_fox_params_ds.iterrows():
+                if smiles not in df["canonicalized_PSMILES_rep_u1"].values:
+                    continue
+                entrymask = (df["canonicalized_PSMILES_rep_u1"] == smiles) & df[
+                    "canonicalized_PSMILES_rep_u2"
+                ].isna()
+                min_tm = df[entrymask]["Mn"].min()
+                max_tm = df[entrymask]["Mn"].max()
+                pdi_mean = (df[entrymask]["Mw"] / df[entrymask]["Mn"]).mean()
+                sampled_mns = np.random.RandomState(seed).uniform(np.log(min_tm), np.log(max_tm), 20)
+                sampled_mns = np.exp(sampled_mns)
+                sampled_tgs = flory_fox(sampled_mns, data["Tg_inf"], data["K"])
 
-            df = pd.concat(
-                [
-                    df,
-                    pd.DataFrame(
-                        {
-                            "Mn": sampled_mns,
-                            "Mw": sampled_mns * pdi_mean,
-                            "SMILES_start": df[entrymask]["SMILES_start"].iloc[0],
-                            "SMILES_end": df[entrymask]["SMILES_end"].iloc[0],
-                            "molpercent_rep_u1": 1.0,
-                            "Tg": sampled_tgs,
-                            "canonicalized_PSMILES_rep_u1": smiles,
-                        }
-                    ),
-                ]
-            )
+                df = pd.concat(
+                    [
+                        df,
+                        pd.DataFrame(
+                            {
+                                "Mn": sampled_mns,
+                                "Mw": sampled_mns * pdi_mean,
+                                "SMILES_start": df[entrymask]["SMILES_start"].iloc[0],
+                                "SMILES_end": df[entrymask]["SMILES_end"].iloc[0],
+                                "molpercent_rep_u1": 1.0,
+                                "Tg": sampled_tgs,
+                                "canonicalized_PSMILES_rep_u1": smiles,
+                            }
+                        ),
+                    ]
+                )
         
         print(f"Successfully loaded {CSV_PATH}. Found {len(df)} entries.")
     except FileNotFoundError:
