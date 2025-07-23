@@ -20,9 +20,7 @@ from .plots import (
     create_parity_plot,
     create_error_distribution_plot, 
     create_tsne_embeddings_plot,
-    generate_training_report
 )
-from .utils import prepare_data_stats, prepare_training_stats
 
 
 def create_kfold_ensemble_predictions(
@@ -150,7 +148,7 @@ def create_kfold_visualization_suite(
     device: Optional[torch.device] = None,
     create_tsne: bool = True,
     batch_size: int = 32,
-    property_name: str = "Values",
+    property_name: str = "Tg",
     unit: str = "",
 ) -> Dict[str, Any]:
     """

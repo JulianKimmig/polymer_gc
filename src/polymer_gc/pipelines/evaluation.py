@@ -29,6 +29,7 @@ from .training import (
     get_kfold_splits, 
     create_fold_dataloaders
 )
+from ..visualization.kfold_analysis import create_kfold_visualization_suite
 
 
 class SplitEvalResult(BaseModel):
@@ -283,6 +284,9 @@ def evaluation_pipeline(
     device: Optional[str] = None,
     reduce_identical: bool = True,
     cached_data: Optional[List[Data]] = None,
+    create_visualizations: bool = True,
+    property_name: str = "Value",
+    unit: str = "",
 ) -> Tuple[KFoldEvalResult, Dict[str, Any]]:
     """
     Evaluation pipeline for k-fold cross-validation trained models.
@@ -474,53 +478,62 @@ def evaluation_pipeline(
     
     print(f"Complete evaluation results saved to: {results_path}")
     
+    # Create visualizations if requested
+    visualization_results = None
+    if create_visualizations:
+        print("\n" + "="*50)
+        print("CREATING K-FOLD VISUALIZATION SUITE")
+        print("="*50)
+        
+        # Convert KFoldEvalResult to KFoldResult format for visualization
+        # We need to create a compatible format for the visualization functions
+        from .training import TrainingResult, KFoldResult
+        
+        # Create TrainingResult objects for each fold
+        training_results = []
+        for eval_result in kfold_eval_result.results:
+            if eval_result.model_loaded_successfully:
+                # Use test metrics as proxy for the training result format
+                training_result = TrainingResult(
+                    fold=eval_result.fold,
+                    test_mae=eval_result.test_result.mae,
+                    test_mse=eval_result.test_result.mse,
+                    test_r2=eval_result.test_result.r2,
+                    epochs_trained=100,  # Placeholder
+                    best_epoch=90,       # Placeholder
+                    model_dir=Path(eval_result.model_dir)
+                )
+                training_results.append(training_result)
+        
+        # Create KFoldResult for visualization compatibility
+        visualization_kfold_result = KFoldResult(
+            results=training_results,
+            test_mae=kfold_eval_result.test_mae,
+            test_mse=kfold_eval_result.test_mse,
+            test_r2=kfold_eval_result.test_r2,
+            k_folds=kfold_eval_result.k_folds,
+            config=kfold_eval_result.config,
+            used_pretrained=False  # Will be inferred if needed
+        )
+        
+        # Create visualization suite
+        visualization_results = create_kfold_visualization_suite(
+            kfold_result=visualization_kfold_result,
+            all_graph_data=all_graph_data,
+            dataset_name=ds_name,
+            output_dir=output_dir / "visualizations",
+            device=torch.device(device) if device else None,
+            create_tsne=True,
+            property_name=property_name,
+            unit=unit
+        )
+        
+        print("K-fold visualization suite completed!")
+    
     return kfold_eval_result, {
         "all_graph_data": all_graph_data,
         "fold_splits": fold_splits,
-        "output_dir": output_dir
+        "output_dir": output_dir,
+        "visualization_results": visualization_results
     }
 
-
-def main():
-    """Command-line interface for the evaluation pipeline."""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Evaluate trained k-fold models")
-    parser.add_argument("--ds_name", type=str, required=True, help="Dataset name")
-    parser.add_argument("--trained_models_dir", type=Path, required=True, 
-                       help="Directory containing trained models")
-    parser.add_argument("--db_path", type=Path, required=True, help="Database path")
-    parser.add_argument("--output_dir", type=Path, required=False, 
-                       help="Output directory for evaluation results")
-    parser.add_argument("--data_dir", type=Path, required=False, help="Data cache directory")
-    parser.add_argument("--k_folds", type=int, required=False, default=5, 
-                       help="Number of folds (must match training)")
-    parser.add_argument("--seed", type=int, required=False, default=42, 
-                       help="Random seed (must match training)")
-    parser.add_argument("--device", type=str, required=False, help="Device (cuda/cpu)")
-    parser.add_argument("--conf", type=Path, required=False, 
-                       help="Path to training configuration file")
-    
-    args = parser.parse_args()
-    
-    # Load configuration if provided
-    conf = None
-    if args.conf is not None:
-        conf = TrainingConf.model_validate_json(Path(args.conf).read_text())
-    
-    # Run evaluation pipeline
-    kfold_eval_result, additional_data = evaluation_pipeline(
-        ds_name=args.ds_name,
-        trained_models_dir=args.trained_models_dir,
-        db_path=args.db_path,
-        output_dir=args.output_dir,
-        data_dir=args.data_dir,
-        k_folds=args.k_folds,
-        seed=args.seed,
-        conf=conf,
-        device=args.device
-    )
-
-
-if __name__ == "__main__":
-    main()

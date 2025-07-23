@@ -14,8 +14,7 @@ from .plots import (
     create_parity_plot,
     create_error_distribution_plot,
     create_tsne_embeddings_plot,
-    generate_training_report,
-)
+    )
 
 
 def create_full_evaluation_suite(
@@ -23,15 +22,10 @@ def create_full_evaluation_suite(
     y_pred: np.ndarray,
     embeddings: np.ndarray,
     output_dir: Path,
-    dataset_name: str = "dataset",
-    model_config: Any = None,
-    training_config: Dict[str, Any] = None,
-    data_stats: Dict[str, Any] = None,
-    training_stats: Dict[str, Any] = None,
     create_tsne: bool = True,
 ) -> Dict[str, Any]:
     """
-    Create a complete evaluation suite with all visualization plots and report.
+    Create a complete evaluation suite with all visualization plots.
     
     Args:
         y_true: True values
@@ -94,21 +88,8 @@ def create_full_evaluation_suite(
     # Generate comprehensive report
     report_path = output_dir / "training_analysis_report.md"
     
-    # Use provided configs or create defaults
-    training_config = training_config or {}
-    data_stats = data_stats or {}
-    training_stats = training_stats or {}
     
-    generate_training_report(
-        dataset_name=dataset_name,
-        model_config=model_config,
-        training_config=training_config,
-        metrics=parity_metrics,
-        data_stats=data_stats,
-        training_stats=training_stats,
-        output_path=report_path,
-        plot_paths=plot_paths,
-    )
+    
     
     results["plot_paths"] = plot_paths
     results["report_path"] = report_path

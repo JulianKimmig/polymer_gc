@@ -9,7 +9,6 @@ from .plots import (
     create_parity_plot,
     create_error_distribution_plot,
     create_tsne_embeddings_plot,
-    generate_training_report,
 )
 from .utils import (
     create_full_evaluation_suite,
@@ -26,7 +25,6 @@ __all__ = [
     "create_parity_plot",
     "create_error_distribution_plot", 
     "create_tsne_embeddings_plot",
-    "generate_training_report",
     "create_full_evaluation_suite",
     "calculate_comprehensive_metrics",
     "prepare_data_stats",

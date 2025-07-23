@@ -12,6 +12,7 @@ from torch_geometric.loader import DataLoader
 
 from polymer_gc.datasets.tg_bayreuth_jena import populate as fill_db_bj
 from polymer_gc.visualization import create_kfold_visualization_suite
+from polymer_gc.pipelines.evaluation import evaluation_pipeline
 from pathlib import Path
 
 db_path = Path(__file__).parent / "database.db"
@@ -31,51 +32,75 @@ model_conf=PolyGCBaseModel.ModelConfig(
         )
 
 
-res = taining_pipeline(
+# res_jb = taining_pipeline(
+#     ds_name="tg_jablonka",
+#     result_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"jb",
+#     conf=TrainingConf(
+#         batch_size=32,
+#         epochs=150,
+#         model_conf=model_conf,
+#     ),
+#     db_path= db_path,
+#     reduce_indentical=False,
+# )
+
+eval_result_jb, eval_data_jb = evaluation_pipeline(
     ds_name="tg_jablonka",
-    result_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"jb",
-    conf=TrainingConf(
-        batch_size=32,
-        epochs=150,
-        model_conf=model_conf,
-    ),
-    db_path= db_path,
-    reduce_indentical=False,
+    trained_models_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"jb",
+    db_path=db_path,
+    reduce_identical=False,
+    output_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"jb" / "evaluation",
+    property_name="Tg",
+    unit="K"
 )
 
-# Create visualizations for tg_jablonka training
-kfold_result, data_dict = res
-create_kfold_visualization_suite(
-    kfold_result=kfold_result,
-    all_graph_data=data_dict["all_graph_data"],
-    dataset_name="tg_jablonka",
-    output_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"jb" / "visualizations",
-    create_tsne=True
-)
+# res_wflory = taining_pipeline(
+#     ds_name="tg_bayreuth_jena",
+#     result_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"wflory",
+#     pretrained_model_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"jb",
+#     conf=TrainingConf(
+#         batch_size=32,
+#         epochs=50,
+#         model_conf=model_conf,
+#     ),
+#     db_path= db_path,
+#     reduce_indentical=False,
+# )
 
-
-res = taining_pipeline(
+eval_result_wflory, eval_data_wflory = evaluation_pipeline(
     ds_name="tg_bayreuth_jena",
-    result_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"wflory",
-    pretrained_model_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"jb",
-    conf=TrainingConf(
-        batch_size=32,
-        epochs=50,
-        model_conf=model_conf,
-    ),
-    db_path= db_path,
-    reduce_indentical=False,
+    trained_models_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"wflory",
+    db_path=db_path,
+    k_folds=5,
+    seed=42,
+    reduce_identical=False,
+    output_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"wflory" / "evaluation",
+    property_name="Tg",
+    unit="K"
 )
 
-res = taining_pipeline(
+# res = taining_pipeline(
+#     ds_name="tg_bayreuth_jena_no_flory_fox",
+#     result_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"fin",
+#     pretrained_model_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"wflory",
+#     conf=TrainingConf(
+#         batch_size=32,
+#         epochs=4,
+#         model_conf=model_conf,
+#     ),
+#     db_path= db_path,
+#     reduce_indentical=False,
+# )
+
+eval_result_fin, eval_data_fin = evaluation_pipeline(
     ds_name="tg_bayreuth_jena_no_flory_fox",
-    result_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"fin",
-    pretrained_model_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"wflory",
-    conf=TrainingConf(
-        batch_size=32,
-        epochs=4,
-        model_conf=model_conf,
-    ),
-    db_path= db_path,
-    reduce_indentical=False,
+    trained_models_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"fin",
+    db_path=db_path,
+    k_folds=5,
+    seed=42,
+    reduce_identical=False,
+    output_dir=Path(__file__).parent / "results" / "tg_bayreuth_optimum"/"fin" / "evaluation",
+    property_name="Tg",
+    unit="K"
 )
+
