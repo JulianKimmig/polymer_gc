@@ -17,9 +17,8 @@ from polymer_gc.visualization import create_kfold_visualization_suite
 from polymer_gc.pipelines.evaluation import evaluation_pipeline
 from pathlib import Path
 
-db_path = Path(__file__).parent / "database.db"
 
-basefolder = Path(__file__).parent / "results" / "tg_bayreuth_default"
+basefolder = Path(__file__).parent / "results" / Path(__file__).stem
 db_path = Path(__file__).parent / "database.db"
 fill_db_jb(
     db_path=db_path,

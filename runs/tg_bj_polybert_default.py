@@ -11,14 +11,26 @@ from sklearn.model_selection import KFold
 from torch_geometric.loader import DataLoader
 
 from polymer_gc.datasets.tg_bayreuth_jena import populate as fill_db_bj
+from polymer_gc.datasets.tg_jablonka import populate as fill_db_jb
 from polymer_gc.visualization import create_kfold_visualization_suite
 from polymer_gc.pipelines.evaluation import evaluation_pipeline
 from pathlib import Path
 
+basefolder = Path(__file__).parent / "results" / Path(__file__).stem
 db_path = Path(__file__).parent / "database.db"
-
-basefolder = Path(__file__).parent / "results" / "tg_bayreuth_default"
-
+fill_db_jb(
+    db_path=db_path,
+    ds_name="tg_jablonka_polybert",
+)
+fill_db_bj(
+    db_path=db_path,
+    ds_name="tg_bayreuth_jena_polybert",
+)
+fill_db_bj(
+    db_path=db_path,
+    ds_name="tg_bayreuth_jena_polybert_no_flory_fox",
+    include_flory_fox=False,
+)
 
 model_conf=PolyGCBaseModel.ModelConfig(
             task_type="regression",
