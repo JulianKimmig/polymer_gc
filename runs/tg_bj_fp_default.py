@@ -25,15 +25,23 @@ fill_db_jb(
     db_path=db_path,
     pg_dataset_config=PgDatasetConfig(
         embedding="RDKitFP",
+        targets=["Tg"],
     ),
 )
 fill_db_bj(
     db_path=db_path,
+    pg_dataset_config=PgDatasetConfig(
+        embedding="RDKitFP",
+        targets=["Tg"],
+    ),
 )
 fill_db_bj(
     db_path=db_path,
     flory_fox=False,
-
+    pg_dataset_config=PgDatasetConfig(
+        embedding="RDKitFP",
+        targets=["Tg"],
+    ),
 )
 
 model_conf=PolyGCBaseModel.ModelConfig(
