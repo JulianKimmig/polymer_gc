@@ -89,7 +89,7 @@ def populate(
                 pdi_mean = (df[entrymask]["Mw"] / df[entrymask]["Mn"]).mean()
                 sampled_mns = np.random.RandomState(seed).uniform(np.log(min_tm), np.log(max_tm), 20)
                 sampled_mns = np.exp(sampled_mns)
-                sampled_tgs = include_flory_fox(sampled_mns, data["Tg_inf"], data["K"])
+                sampled_tgs = flory_fox(sampled_mns, data["Tg_inf"], data["K"])
 
                 df = pd.concat(
                     [
