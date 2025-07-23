@@ -12,6 +12,7 @@ import seaborn as sns
 from pathlib import Path
 from typing import Union, Optional, Dict, Any, Tuple
 from sklearn.manifold import TSNE
+import umap
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from scipy.stats import gaussian_kde
 
@@ -21,6 +22,7 @@ from .style import (
     CBAR_TICKS_FONT_SIZE,
     AXIS_LABEL_FONT_SIZE,
     TITLE_FONT_SIZE,
+    SUPTITLE_FONT_SIZE,
     LEGEND_TITLE_FONT_SIZE,
     LEGEND_LABEL_FONT_SIZE,
     TICK_LABEL_FONT_SIZE,
@@ -63,6 +65,8 @@ def create_parity_plot(
         xlabel = f"True {property_name}{unit_suffix}"
     if ylabel is None:
         ylabel = f"Predicted {property_name}{unit_suffix}"
+
+    print(f"Making Parity Plot")
     
     # Calculate metrics
     mae = mean_absolute_error(y_true, y_pred)
@@ -166,6 +170,8 @@ def create_error_distribution_plot(
     if xlabel is None:
         xlabel = f"Error{unit_suffix}"
     
+    print(f"Making {title}")
+    
     # Calculate errors
     errors = y_pred - y_true
     
@@ -203,9 +209,10 @@ def create_error_distribution_plot(
     return fig, error_stats
 
 
-def create_tsne_embeddings_plot(
+def create_embeddings_plot(
     embeddings: np.ndarray,
     y_true: np.ndarray,
+    entry_pos: np.ndarray,
     output_path: Optional[Union[str, Path]] = None,
     title: Optional[str] = None,
     xlabel: str = "t-SNE Dimension 1",
@@ -215,7 +222,10 @@ def create_tsne_embeddings_plot(
     unit: str = "",
     perplexity: Optional[int] = None,
     random_state: int = 42,
-) -> Tuple[plt.Figure, np.ndarray]:
+    make_tsne: bool = True,
+    make_umap: bool = True,
+    merde_by_entry_pos: bool = True,
+) -> Tuple[plt.Figure, Dict[str, np.ndarray]]:
     """
     Create a t-SNE visualization of embeddings colored by target values.
     
@@ -238,56 +248,110 @@ def create_tsne_embeddings_plot(
     # Auto-generate labels if not provided
     unit_suffix = f" [{unit}]" if unit else ""
     if title is None:
-        title = f"t-SNE Projection of {property_name} Embeddings"
+        title = f"Embeddings Projection of {property_name}"
     if colorbar_label is None:
         colorbar_label = f"True {property_name}{unit_suffix}"
+
+    print(f"Making {title}, given {len(y_true)} entries,",end="")   
     
     # Set perplexity
     if perplexity is None:
         perplexity = min(30, len(embeddings) - 1)
-    
+
+    if merde_by_entry_pos:
+        # merge embeddings by entry_pos by combining values of y_true, y_pred, and embeddings with the same entry_pos by taking the mean
+        y_true = np.array([y_true[entry_pos == i].mean() for i in np.unique(entry_pos)])
+        embeddings = np.array([embeddings[entry_pos == i].mean(axis=0) for i in np.unique(entry_pos)])
+        print(f" merged by entry_pos to {len(y_true)} entries")
+    else:
+        print(f" not merged by entry_pos")
+
+
+    nplots=0
+    if make_tsne:
+        nplots+=1
+    if make_umap:
+        nplots+=1
+
+    if nplots==0:
+        raise ValueError("No plots to make, set at least one of make_tsne or make_umap to True")
+    fig=plt.figure(figsize=(nplots*FIGSIZE[0], FIGSIZE[1]))
+    if nplots == 1:
+        axs = [fig.add_subplot(1, 1, 1)]
+    else:
+        axs = fig.subplots(1, nplots)
+    current_ax=0
+    results={}
     # Perform t-SNE
-    tsne = TSNE(
-        n_components=2,
-        verbose=0,
-        perplexity=perplexity,
-        max_iter=1000,
-        random_state=random_state,
-    )
-    tsne_results = tsne.fit_transform(embeddings)
+    if make_tsne:
+        tsne = TSNE(
+            n_components=2,
+            verbose=0,
+            perplexity=perplexity,
+            max_iter=1000,
+            random_state=random_state,
+        )
+        tsne_results = tsne.fit_transform(embeddings)
+        results["tsne"]=tsne_results
+        
+        # Create scatter plot on the current axis
+        scatter = axs[current_ax].scatter(
+            tsne_results[:, 0],
+            tsne_results[:, 1],
+            c=y_true,
+            cmap="viridis",
+            alpha=0.8,
+            edgecolors="black",
+            linewidth=0.5,
+        )
+        
+        # Add colorbar
+        cbar = plt.colorbar(scatter, ax=axs[current_ax])
+        cbar.set_label(colorbar_label, fontsize=CBAR_FONT_SIZE, weight="bold")
+        cbar.ax.tick_params(labelsize=CBAR_TICKS_FONT_SIZE)
+        
+        # Formatting
+        axs[current_ax].set_title(f"t-SNE Projection of {property_name}", fontsize=SUPTITLE_FONT_SIZE)
+        axs[current_ax].set_xlabel(xlabel, fontsize=AXIS_LABEL_FONT_SIZE, weight="bold")
+        axs[current_ax].set_ylabel(ylabel, fontsize=AXIS_LABEL_FONT_SIZE, weight="bold")
+        axs[current_ax].tick_params(axis='both', labelsize=TICK_LABEL_FONT_SIZE)
+        axs[current_ax].grid(True, alpha=0.3)
+        current_ax+=1
+        
+       
+        
+    if make_umap:
+        umap_results = umap.UMAP(
+            n_components=2,
+            verbose=0,
+            random_state=random_state,
+        ).fit_transform(embeddings)
+        results["umap"]=umap_results
+        
+        scatter = axs[current_ax].scatter(
+            umap_results[:, 0],
+            umap_results[:, 1],
+            c=y_true,
+            cmap="viridis",
+            alpha=0.8,
+            edgecolors="black",
+            linewidth=0.5,
+        )
+        cbar = plt.colorbar(scatter, ax=axs[current_ax])
+        cbar.set_label(colorbar_label, fontsize=CBAR_FONT_SIZE, weight="bold")
+        cbar.ax.tick_params(labelsize=CBAR_TICKS_FONT_SIZE)
+        axs[current_ax].set_title(f"UMAP Projection of {property_name}", fontsize=SUPTITLE_FONT_SIZE)
+        axs[current_ax].set_xlabel(xlabel, fontsize=AXIS_LABEL_FONT_SIZE, weight="bold")
+        axs[current_ax].set_ylabel(ylabel, fontsize=AXIS_LABEL_FONT_SIZE, weight="bold")
+        axs[current_ax].tick_params(axis='both', labelsize=TICK_LABEL_FONT_SIZE)
+        axs[current_ax].grid(True, alpha=0.3)
+        current_ax+=1
     
-    # Create figure
-    fig = plt.figure(figsize=FIGSIZE)
-    
-    # Create scatter plot
-    scatter = plt.scatter(
-        tsne_results[:, 0],
-        tsne_results[:, 1],
-        c=y_true,
-        cmap="viridis",
-        alpha=0.8,
-        edgecolors="black",
-        linewidth=0.5,
-    )
-    
-    # Add colorbar
-    cbar = plt.colorbar(scatter)
-    cbar.set_label(colorbar_label, fontsize=CBAR_FONT_SIZE, weight="bold")
-    cbar.ax.tick_params(labelsize=CBAR_TICKS_FONT_SIZE)
-    
-    # Formatting
-    plt.title(title, fontsize=TITLE_FONT_SIZE)
-    plt.xlabel(xlabel, fontsize=AXIS_LABEL_FONT_SIZE, weight="bold")
-    plt.ylabel(ylabel, fontsize=AXIS_LABEL_FONT_SIZE, weight="bold")
-    plt.xticks(fontsize=TICK_LABEL_FONT_SIZE)
-    plt.yticks(fontsize=TICK_LABEL_FONT_SIZE)
-    plt.grid(True, alpha=0.3)
+    plt.suptitle(title, fontsize=TITLE_FONT_SIZE)
     plt.tight_layout()
     
-    # Save plot if path provided
     if output_path:
         output_path = Path(output_path)
         plt.savefig(output_path, dpi=DPI, bbox_inches="tight")
-        
-    
-    return fig, tsne_results
+
+    return fig,results

@@ -26,7 +26,7 @@ class TrainingConf(BaseModel):
     model_conf: PolyGCBaseModel.ModelConfig = Field(
         default_factory=PolyGCBaseModel.ModelConfig
     )
-    learning_rate: float = Field(default=0.0001)
+    learning_rate: float = Field(default=0.001)
     batch_size: int = Field(default=32)
     epochs: int = Field(default=50)
     scheduler_factor: float = Field(default=0.5)

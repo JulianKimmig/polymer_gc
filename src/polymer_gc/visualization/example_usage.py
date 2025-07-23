@@ -14,7 +14,7 @@ from polymer_gc.visualization import (
     create_full_evaluation_suite,
     create_parity_plot,
     create_error_distribution_plot,
-    create_tsne_embeddings_plot,
+    create_embeddings_plot,
     calculate_comprehensive_metrics,
     prepare_data_stats,
     prepare_training_stats,
@@ -65,14 +65,15 @@ def example_with_synthetic_data():
     print(f"Error statistics: {error_stats}")
     
     # t-SNE plot (optional, can be slow)
-    tsne_fig, tsne_results = create_tsne_embeddings_plot(
+    emb_fig, emb_results = create_embeddings_plot(
         embeddings=embeddings,
         y_true=y_true,
-        output_path=output_dir / "example_tsne_plot.png",
+        output_path=output_dir / "example_embeddings_plot.png",
         colorbar_label="True Tg (K)"
     )
-    tsne_fig.close()
-    print(f"t-SNE results shape: {tsne_results.shape}")
+    emb_fig.close()
+    print(f"t-SNE results shape: {emb_results["tsne"].shape}")
+    print(f"UMAP results shape: {emb_results["umap"].shape}")
     
     # Example 2: Create full evaluation suite
     print("\\nCreating full evaluation suite...")
@@ -123,7 +124,7 @@ def example_with_synthetic_data():
         training_config=training_config,
         data_stats=data_stats,
         training_stats=training_stats,
-        create_tsne=True
+        create_embeddings=True
     )
     
     print(f"Full evaluation suite created at: {results['report_path']}")
@@ -204,7 +205,7 @@ def example_with_model_data(
         training_config=training_config,
         data_stats=data_stats,
         training_stats=training_stats,
-        create_tsne=True
+        create_embeddings=True
     )
     
     print(f"Visualization suite created at: {results['report_path']}")

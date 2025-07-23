@@ -8,7 +8,7 @@ model evaluation, and data exploration in the polymer_gc package.
 from .plots import (
     create_parity_plot,
     create_error_distribution_plot,
-    create_tsne_embeddings_plot,
+    create_embeddings_plot,
 )
 from .utils import (
     create_full_evaluation_suite,
@@ -24,7 +24,7 @@ from .kfold_analysis import (
 __all__ = [
     "create_parity_plot",
     "create_error_distribution_plot", 
-    "create_tsne_embeddings_plot",
+    "create_embeddings_plot",
     "create_full_evaluation_suite",
     "calculate_comprehensive_metrics",
     "prepare_data_stats",

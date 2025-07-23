@@ -13,7 +13,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from .plots import (
     create_parity_plot,
     create_error_distribution_plot,
-    create_tsne_embeddings_plot,
+    create_embeddings_plot,
     )
 
 
@@ -22,7 +22,7 @@ def create_full_evaluation_suite(
     y_pred: np.ndarray,
     embeddings: np.ndarray,
     output_dir: Path,
-    create_tsne: bool = True,
+    create_embeddings: bool = True,
 ) -> Dict[str, Any]:
     """
     Create a complete evaluation suite with all visualization plots.
@@ -37,7 +37,7 @@ def create_full_evaluation_suite(
         training_config: Training configuration dictionary
         data_stats: Dataset statistics dictionary
         training_stats: Training process statistics
-        create_tsne: Whether to create t-SNE plot (can be slow for large datasets)
+        create_embeddings: Whether to create t-SNE/UMAP plot (can be slow for large datasets)
         
     Returns:
         Dictionary containing all results and file paths
@@ -73,17 +73,17 @@ def create_full_evaluation_suite(
     plot_paths["error_distribution"] = error_path
     
     # Create t-SNE plot if requested
-    if create_tsne and embeddings is not None:
-        tsne_path = output_dir / "tsne_embeddings_by_tg.png"
-        tsne_fig, tsne_results = create_tsne_embeddings_plot(
+    if create_embeddings and embeddings is not None:
+        emb_path = output_dir / "embeddings_by_tg.png"
+        emb_fig, emb_results = create_embeddings_plot(
             embeddings=embeddings,
             y_true=y_true,
-            output_path=tsne_path
+            output_path=emb_path    
         )
-        tsne_fig.close()
+        emb_fig.close()
         
-        results["tsne_results"] = tsne_results
-        plot_paths["tsne_embeddings"] = tsne_path
+        results["embedding_results"] = emb_results
+        plot_paths["embedding_results"] = emb_path
     
     # Generate comprehensive report
     report_path = output_dir / "training_analysis_report.md"

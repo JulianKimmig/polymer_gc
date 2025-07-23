@@ -44,13 +44,15 @@ class SplitEvalResult(BaseModel):
     _y_true: List[float] = PrivateAttr()
     _y_pred: List[float] = PrivateAttr()
     _embeddings: List[List[float]] = PrivateAttr()
+    _entry_pos: List[str] = PrivateAttr()
     
-    def __init__(self, y_true: List[float], y_pred: List[float], embeddings: List[List[float]], **data):
+    def __init__(self, y_true: List[float], y_pred: List[float], embeddings: List[List[float]], entry_pos: List[int], **data):
         super().__init__(**data)
         self._y_true = y_true
         self._y_pred = y_pred
         self._embeddings = embeddings
-    
+        self._entry_pos = entry_pos
+
     @property
     def y_true(self) -> List[float]:
         return self._y_true
@@ -62,6 +64,10 @@ class SplitEvalResult(BaseModel):
     @property
     def embeddings(self) -> List[List[float]]:
         return self._embeddings
+    
+    @property
+    def entry_pos(self) -> List[int]:
+        return self._entry_pos
     
     def save_arrays(self, output_dir: Path, fold_id: str = "") -> Dict[str, Path]:
         """Save large arrays as separate numpy files."""
@@ -76,15 +82,17 @@ class SplitEvalResult(BaseModel):
         y_true_path = output_dir / f"{prefix}_y_true.npy"
         y_pred_path = output_dir / f"{prefix}_y_pred.npy"
         embeddings_path = output_dir / f"{prefix}_embeddings.npy"
+        entry_pos_path = output_dir / f"{prefix}_entry_pos.npy"
         
         np.save(y_true_path, np.array(self._y_true))
         np.save(y_pred_path, np.array(self._y_pred))
         np.save(embeddings_path, np.array(self._embeddings))
-        
+        np.save(entry_pos_path, np.array(self._entry_pos))
         return {
             "y_true_path": y_true_path,
             "y_pred_path": y_pred_path,
-            "embeddings_path": embeddings_path
+            "embeddings_path": embeddings_path,
+            "entry_pos_path": entry_pos_path
         }
 
 
@@ -201,6 +209,7 @@ def evaluate_model_on_split(
     all_true = []
     all_pred = []
     all_embeddings = []
+    all_entry_pos = []
     
     with torch.no_grad():
         for batch in tqdm(data_loader, desc=f"Evaluating {split_name}", leave=False):
@@ -213,12 +222,13 @@ def evaluate_model_on_split(
             all_true.append(batch.y.cpu().numpy())
             all_pred.append(preds.cpu().numpy())
             all_embeddings.append(embeddings.cpu().numpy())
+            all_entry_pos.append(batch.entry_pos.cpu().numpy())
     
     # Concatenate results
     y_true = np.concatenate(all_true).flatten()
     y_pred = np.concatenate(all_pred).flatten()
     embeddings_array = np.concatenate(all_embeddings, axis=0)
-    
+    entry_pos = np.concatenate(all_entry_pos, axis=0)
     # Calculate metrics
     mae = mean_absolute_error(y_true, y_pred)
     mse = mean_squared_error(y_true, y_pred)
@@ -229,6 +239,7 @@ def evaluate_model_on_split(
         y_true=y_true.tolist(),
         y_pred=y_pred.tolist(),
         embeddings=embeddings_array.tolist(),
+        entry_pos=entry_pos.tolist(),
         mae=mae,
         mse=mse,
         r2=r2,
@@ -546,7 +557,7 @@ def evaluation_pipeline(
             kfold_eval_result=kfold_eval_result,
             dataset_name=ds_name,
             output_dir=output_dir / "visualizations",
-            create_tsne=True,
+            create_embeddings=True,
             property_name=property_name,
             unit=unit
         )
