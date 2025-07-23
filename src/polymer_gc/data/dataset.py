@@ -111,7 +111,6 @@ class Dataset(Base, table=True):
     items: List[DatasetItem] = Relationship(back_populates="dataset")
 
     @classmethod
-    @classmethod
     def fill_values(cls, **kwargs):
         if "config" in kwargs:
             kwargs["dict_config"] = PgDatasetConfig.model_validate(
