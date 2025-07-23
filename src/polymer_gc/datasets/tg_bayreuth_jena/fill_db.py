@@ -61,14 +61,14 @@ def populate(
         max_monos:int=100,
         pg_dataset_config:Optional[PgDatasetConfig]=None,
         seed:int=42,
-        flory_fox=True,
+        include_flory_fox=True,
 ):
     pg_dataset_config = pg_dataset_config or default_pg_dataset_config
     pg_dataset_config.targets = default_pg_dataset_config.targets
     pg_dataset_config.target_classes = None
     
     if not dataset_name:
-        if flory_fox:
+        if include_flory_fox:
             dataset_name = "tg_bayreuth_jena"
         else:
             dataset_name = "tg_bayreuth_jena_no_flory_fox"
@@ -77,7 +77,7 @@ def populate(
         df = pd.read_csv(CSV_PATH)
         flory_fox_params_ds = pd.read_csv(FLORY_FOX_PARAMS_CSV_PATH, index_col=0)
 
-        if flory_fox:
+        if include_flory_fox:
             for smiles, data in flory_fox_params_ds.iterrows():
                 if smiles not in df["canonicalized_PSMILES_rep_u1"].values:
                     continue
@@ -89,7 +89,7 @@ def populate(
                 pdi_mean = (df[entrymask]["Mw"] / df[entrymask]["Mn"]).mean()
                 sampled_mns = np.random.RandomState(seed).uniform(np.log(min_tm), np.log(max_tm), 20)
                 sampled_mns = np.exp(sampled_mns)
-                sampled_tgs = flory_fox(sampled_mns, data["Tg_inf"], data["K"])
+                sampled_tgs = include_flory_fox(sampled_mns, data["Tg_inf"], data["K"])
 
                 df = pd.concat(
                     [

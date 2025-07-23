@@ -37,7 +37,7 @@ fill_db_bj(
 )
 fill_db_bj(
     db_path=db_path,
-    flory_fox=False,
+    include_flory_fox=False,
     pg_dataset_config=PgDatasetConfig(
         embedding="RDKitFP",
         targets=["Tg"],
