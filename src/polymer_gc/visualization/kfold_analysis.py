@@ -23,106 +23,45 @@ from .plots import (
 )
 
 
-def create_kfold_ensemble_predictions(
-    kfold_result: KFoldResult,
-    all_graph_data: List[Any],
-    device: Optional[torch.device] = None,
-    batch_size: int = 32,
+def create_kfold_ensemble_predictions_from_eval_results(
+    kfold_eval_result,  # KFoldEvalResult from evaluation pipeline
 ) -> Dict[str, Any]:
     """
-    Create ensemble predictions using all folds from k-fold cross-validation.
+    Create ensemble predictions using results from evaluation pipeline.
     
     Args:
-        kfold_result: K-fold training results
-        all_graph_data: All graph data used in training
-        device: Device to run inference on
-        batch_size: Batch size for inference
+        kfold_eval_result: K-fold evaluation results from evaluation_pipeline
         
     Returns:
         Dictionary containing predictions, true values, embeddings, and metadata
     """
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    print(f"Creating ensemble predictions from {kfold_result.k_folds} folds...")
-    
-    # Get unique entry positions for splitting
-    unique_entries = list(set(g.entry_pos for g in all_graph_data))
-    
-    # Recreate the same k-fold splits used in training
-    np.random.seed(42)
-    kf = KFold(n_splits=kfold_result.k_folds, shuffle=True, random_state=42)
-    splits = list(kf.split(unique_entries))
+    print(f"Creating ensemble predictions from {kfold_eval_result.k_folds} folds (using evaluation results)...")
     
     all_fold_predictions = []
     all_fold_embeddings = []
     all_test_true = []
-    all_test_graphs = []
     fold_metrics = []
     
-    for fold_idx, (train_entries, test_entries) in enumerate(splits):
-        print(f"Processing fold {fold_idx + 1}/{kfold_result.k_folds}")
-        
-        # Get corresponding result
-        fold_result = kfold_result.results[fold_idx]
-        
-        # Convert indices to actual entry positions
-        test_entry_pos = set(unique_entries[i] for i in test_entries)
-        
-        # Get test graphs for this fold
-        test_graphs = [g for g in all_graph_data if g.entry_pos in test_entry_pos]
-        
-        if len(test_graphs) == 0:
-            print(f"Warning: No test graphs for fold {fold_idx + 1}")
-            continue
+    # Extract data from evaluation results (test split only for ensemble)
+    for fold_result in kfold_eval_result.results:
+        if fold_result.model_loaded_successfully:
+            # Use test split results for ensemble
+            test_result = fold_result.test_result
             
-        # Load model for this fold
-        model = PolyGCBaseModel(config=kfold_result.config.model_conf)
-        model_path = Path(fold_result.model_dir) / "best_model.pt"
-        
-        if not model_path.exists():
-            print(f"Warning: Model not found at {model_path}")
-            continue
+            all_fold_predictions.append(np.array(test_result.y_pred))
+            all_fold_embeddings.append(np.array(test_result.embeddings))
+            all_test_true.append(np.array(test_result.y_true))
             
-        model.load_state_dict(torch.load(model_path, map_location=device))
-        model = model.to(device)
-        model.eval()
-        
-        # Create test loader
-        test_loader = DataLoader(test_graphs, batch_size=batch_size, shuffle=False)
-        
-        # Generate predictions and embeddings
-        fold_preds = []
-        fold_embeddings = []
-        fold_true = []
-        
-        with torch.no_grad():
-            for batch in test_loader:
-                batch = batch.to(device)
-                preds = model.predict(batch)
-                embeddings = model.predict_embedding(batch)
-                
-                fold_preds.append(preds.cpu().numpy())
-                fold_embeddings.append(embeddings.cpu().numpy())
-                fold_true.append(batch.y.cpu().numpy())
-        
-        # Concatenate fold results
-        fold_preds = np.concatenate(fold_preds).flatten()
-        fold_embeddings = np.concatenate(fold_embeddings, axis=0)
-        fold_true = np.concatenate(fold_true).flatten()
-        
-        all_fold_predictions.append(fold_preds)
-        all_fold_embeddings.append(fold_embeddings)
-        all_test_true.append(fold_true)
-        all_test_graphs.extend(test_graphs)
-        
-        fold_metrics.append({
-            "fold": fold_idx + 1,
-            "test_samples": len(test_graphs),
-            "mae": fold_result.test_mae,
-            "mse": fold_result.test_mse,
-            "r2": fold_result.test_r2,
-        })
+            fold_metrics.append({
+                "fold": fold_result.fold,
+                "test_samples": test_result.num_samples,
+                "mae": test_result.mae,
+                "mse": test_result.mse,
+                "r2": test_result.r2,
+            })
+    
+    if len(all_fold_predictions) == 0:
+        raise ValueError("No successful fold results found for creating ensemble predictions")
     
     # Combine all predictions - each entry appears in exactly one test fold
     all_predictions = np.concatenate(all_fold_predictions)
@@ -133,35 +72,33 @@ def create_kfold_ensemble_predictions(
         "y_true": all_true_values,
         "y_pred": all_predictions,
         "embeddings": all_embeddings,
-        "test_graphs": all_test_graphs,
         "fold_metrics": fold_metrics,
-        "ensemble_size": kfold_result.k_folds,
+        "ensemble_size": kfold_eval_result.k_folds,
         "total_test_samples": len(all_predictions)
     }
 
 
 def create_kfold_visualization_suite(
-    kfold_result: KFoldResult,
-    all_graph_data: List[Any],
+    kfold_eval_result,  # KFoldEvalResult from evaluation pipeline
     dataset_name: str,
     output_dir: Path,
-    device: Optional[torch.device] = None,
     create_tsne: bool = True,
-    batch_size: int = 32,
     property_name: str = "Tg",
     unit: str = "",
+    # Legacy parameters kept for backward compatibility
+    kfold_result: Optional['KFoldResult'] = None,
+    all_graph_data: Optional[List[Any]] = None,
+    device: Optional[torch.device] = None,
+    batch_size: int = 32,
 ) -> Dict[str, Any]:
     """
     Create comprehensive visualization suite for k-fold cross-validation results.
     
     Args:
-        kfold_result: K-fold training results
-        all_graph_data: All graph data used in training
+        kfold_eval_result: K-fold evaluation results from evaluation pipeline
         dataset_name: Name of the dataset
         output_dir: Directory to save all outputs
-        device: Device to run inference on
         create_tsne: Whether to create t-SNE visualization
-        batch_size: Batch size for inference
         property_name: Name of the property being predicted (e.g., "Tg", "Density")
         unit: Unit of measurement (e.g., "K", "g/cm³")
         
@@ -171,12 +108,9 @@ def create_kfold_visualization_suite(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Create ensemble predictions
-    ensemble_results = create_kfold_ensemble_predictions(
-        kfold_result=kfold_result,
-        all_graph_data=all_graph_data,
-        device=device,
-        batch_size=batch_size
+    # Create ensemble predictions from evaluation results (no model loading needed!)
+    ensemble_results = create_kfold_ensemble_predictions_from_eval_results(
+        kfold_eval_result=kfold_eval_result
     )
     
     y_true = ensemble_results["y_true"]
@@ -185,11 +119,11 @@ def create_kfold_visualization_suite(
     
     print(f"Creating visualizations for {len(y_true)} total test samples across all folds")
     
-    # Create individual plots
-    plot_paths = {}
+    # Create ensemble plots (main directory)
+    ensemble_plot_paths = {}
     
-    # Parity plot
-    parity_path = output_dir / "kfold_parity_plot.png"
+    # Ensemble parity plot
+    parity_path = output_dir / "kfold_ensemble_parity_plot.png"
     parity_fig, parity_metrics = create_parity_plot(
         y_true=y_true,
         y_pred=y_pred,
@@ -198,25 +132,26 @@ def create_kfold_visualization_suite(
         property_name=property_name,
         unit=unit
     )
-    parity_fig.close()
-    plot_paths["parity_plot"] = parity_path
+    import matplotlib.pyplot as plt
+    plt.close(parity_fig)
+    ensemble_plot_paths["ensemble_parity_plot"] = parity_path
     
-    # Error distribution plot
-    error_path = output_dir / "kfold_error_distribution.png"
+    # Ensemble error distribution plot
+    error_path = output_dir / "kfold_ensemble_error_distribution.png"
     error_fig, error_stats = create_error_distribution_plot(
         y_true=y_true,
         y_pred=y_pred,
         output_path=error_path,
-        title=f"K-Fold {property_name} Prediction Errors ({dataset_name})",
+        title=f"K-Fold Ensemble {property_name} Prediction Errors ({dataset_name})",
         property_name=property_name,
         unit=unit
     )
-    error_fig.close()
-    plot_paths["error_distribution"] = error_path
+    plt.close(error_fig)
+    ensemble_plot_paths["ensemble_error_distribution"] = error_path
     
-    # t-SNE plot if requested
+    # Ensemble t-SNE plot if requested
     if create_tsne:
-        tsne_path = output_dir / "kfold_tsne_embeddings.png"
+        tsne_path = output_dir / "kfold_ensemble_tsne_embeddings.png"
         tsne_fig, tsne_results = create_tsne_embeddings_plot(
             embeddings=embeddings,
             y_true=y_true,
@@ -225,8 +160,72 @@ def create_kfold_visualization_suite(
             property_name=property_name,
             unit=unit
         )
-        tsne_fig.close()
-        plot_paths["tsne_embeddings"] = tsne_path
+        plt.close(tsne_fig)
+        ensemble_plot_paths["ensemble_tsne_embeddings"] = tsne_path
+    
+    # Create individual fold plots in subfolders
+    fold_plot_paths = {}
+    for fold_result in kfold_eval_result.results:
+        if fold_result.model_loaded_successfully:
+            fold_idx = fold_result.fold - 1  # Convert to 0-indexed
+            fold_dir = output_dir / f"fold_{fold_result.fold}"
+            fold_dir.mkdir(exist_ok=True, parents=True)
+            
+            # Individual fold test data
+            test_result = fold_result.test_result
+            fold_y_true = np.array(test_result.y_true)
+            fold_y_pred = np.array(test_result.y_pred)
+            fold_embeddings = np.array(test_result.embeddings)
+            
+            fold_paths = {}
+            
+            # Fold parity plot
+            fold_parity_path = fold_dir / f"fold_{fold_result.fold}_parity_plot.png"
+            fold_parity_fig, fold_parity_metrics = create_parity_plot(
+                y_true=fold_y_true,
+                y_pred=fold_y_pred,
+                output_path=fold_parity_path,
+                title=f"Fold {fold_result.fold} Test Predictions ({dataset_name})",
+                property_name=property_name,
+                unit=unit
+            )
+            plt.close(fold_parity_fig)
+            fold_paths["parity_plot"] = fold_parity_path
+            
+            # Fold error distribution plot
+            fold_error_path = fold_dir / f"fold_{fold_result.fold}_error_distribution.png"
+            fold_error_fig, fold_error_stats = create_error_distribution_plot(
+                y_true=fold_y_true,
+                y_pred=fold_y_pred,
+                output_path=fold_error_path,
+                title=f"Fold {fold_result.fold} {property_name} Prediction Errors ({dataset_name})",
+                property_name=property_name,
+                unit=unit
+            )
+            plt.close(fold_error_fig)
+            fold_paths["error_distribution"] = fold_error_path
+            
+            # Fold t-SNE plot if requested
+            if create_tsne:
+                fold_tsne_path = fold_dir / f"fold_{fold_result.fold}_tsne_embeddings.png"
+                fold_tsne_fig, fold_tsne_results = create_tsne_embeddings_plot(
+                    embeddings=fold_embeddings,
+                    y_true=fold_y_true,
+                    output_path=fold_tsne_path,
+                    title=f"Fold {fold_result.fold} {property_name} Embeddings ({dataset_name})",
+                    property_name=property_name,
+                    unit=unit
+                )
+                plt.close(fold_tsne_fig)
+                fold_paths["tsne_embeddings"] = fold_tsne_path
+            
+            fold_plot_paths[f"fold_{fold_result.fold}"] = fold_paths
+    
+    # Combine all plot paths
+    plot_paths = {
+        "ensemble": ensemble_plot_paths,
+        "individual_folds": fold_plot_paths
+    }
     
     # Prepare configuration data
     if device is None:
@@ -234,47 +233,73 @@ def create_kfold_visualization_suite(
         
     training_config = {
         "seed": 42,
-        "epochs": kfold_result.config.epochs,
-        "batch_size": kfold_result.config.batch_size,
-        "learning_rate": kfold_result.config.learning_rate,
+        "epochs": kfold_eval_result.config.epochs,
+        "batch_size": kfold_eval_result.config.batch_size,
+        "learning_rate": kfold_eval_result.config.learning_rate,
         "optimizer": "AdamW",
         "scheduler": "ReduceLROnPlateau",
-        "patience_epochs": kfold_result.config.early_stopping_patience,
+        "patience_epochs": kfold_eval_result.config.early_stopping_patience,
         "device": str(device),
-        "k_folds": kfold_result.k_folds,
+        "k_folds": kfold_eval_result.k_folds,
         "ensemble_predictions": True
     }
     
-    # For k-fold, we use all data for stats since each sample appears in test exactly once
-    all_targets = np.concatenate([g.y.numpy().flatten() for g in all_graph_data])
-    
+    # Estimate data stats from evaluation results
     data_stats = {
-        "total_samples": len(all_graph_data),
+        "total_samples": kfold_eval_result.total_samples_evaluated,
         "test_samples": len(y_true),
-        "target_name": "Tg",
-        "target_mean": np.mean(all_targets),
-        "target_std": np.std(all_targets),
-        "target_min": np.min(all_targets),
-        "target_max": np.max(all_targets),
+        "target_name": property_name,
+        "target_mean": np.mean(y_true),
+        "target_std": np.std(y_true),
+        "target_min": np.min(y_true),
+        "target_max": np.max(y_true),
         "k_fold_evaluation": True,
     }
     
     # Training statistics from k-fold results
     training_stats = {
-        "k_folds": kfold_result.k_folds,
+        "k_folds": kfold_eval_result.k_folds,
         "ensemble_predictions": True,
-        "fold_mae_mean": kfold_result.test_mae.mean,
-        "fold_mae_std": kfold_result.test_mae.std,
-        "fold_r2_mean": kfold_result.test_r2.mean,
-        "fold_r2_std": kfold_result.test_r2.std,
-        "used_pretrained": kfold_result.used_pretrained,
+        "fold_mae_mean": kfold_eval_result.test_mae.mean,
+        "fold_mae_std": kfold_eval_result.test_mae.std,
+        "fold_r2_mean": kfold_eval_result.test_r2.mean,
+        "fold_r2_std": kfold_eval_result.test_r2.std,
+        "used_pretrained": False,  # This info isn't in KFoldEvalResult
     }
     
-    # Generate comprehensive report
+    # Generate comprehensive report - create a minimal KFoldResult for compatibility
+    from ..pipelines.training import KFoldResult, TrainingResult
+    from pathlib import Path as PathType
+    
+    # Create minimal training results for report generation
+    training_results = []
+    for fold_result in kfold_eval_result.results:
+        if fold_result.model_loaded_successfully:
+            training_results.append(TrainingResult(
+                fold=fold_result.fold,
+                test_mae=fold_result.test_result.mae,
+                test_mse=fold_result.test_result.mse,
+                test_r2=fold_result.test_result.r2,
+                epochs_trained=100,  # Placeholder
+                best_epoch=90,      # Placeholder
+                model_dir=PathType(fold_result.model_dir)
+            ))
+    
+    # Create minimal KFoldResult for report compatibility
+    kfold_result_for_report = KFoldResult(
+        results=training_results,
+        test_mae=kfold_eval_result.test_mae,
+        test_mse=kfold_eval_result.test_mse,
+        test_r2=kfold_eval_result.test_r2,
+        k_folds=kfold_eval_result.k_folds,
+        config=kfold_eval_result.config,
+        used_pretrained=False
+    )
+    
     report_path = output_dir / "kfold_analysis_report.md"
     generate_kfold_training_report(
         dataset_name=dataset_name,
-        kfold_result=kfold_result,
+        kfold_result=kfold_result_for_report,
         ensemble_results=ensemble_results,
         parity_metrics=parity_metrics,
         training_config=training_config,
@@ -287,25 +312,25 @@ def create_kfold_visualization_suite(
     kfold_metrics_path = output_dir / "kfold_detailed_metrics.json"
     detailed_metrics = {
         "dataset": dataset_name,
-        "k_folds": kfold_result.k_folds,
+        "k_folds": kfold_eval_result.k_folds,
         "ensemble_metrics": {
             "mae": parity_metrics["mae"],
             "rmse": parity_metrics["rmse"],
             "r2": parity_metrics["r2"]
         },
         "cross_validation_metrics": {
-            "mae_mean": kfold_result.test_mae.mean,
-            "mae_std": kfold_result.test_mae.std,
-            "mae_min": kfold_result.test_mae.min,
-            "mae_max": kfold_result.test_mae.max,
-            "r2_mean": kfold_result.test_r2.mean,
-            "r2_std": kfold_result.test_r2.std,
-            "r2_min": kfold_result.test_r2.min,
-            "r2_max": kfold_result.test_r2.max,
+            "mae_mean": kfold_eval_result.test_mae.mean,
+            "mae_std": kfold_eval_result.test_mae.std,
+            "mae_min": kfold_eval_result.test_mae.min,
+            "mae_max": kfold_eval_result.test_mae.max,
+            "r2_mean": kfold_eval_result.test_r2.mean,
+            "r2_std": kfold_eval_result.test_r2.std,
+            "r2_min": kfold_eval_result.test_r2.min,
+            "r2_max": kfold_eval_result.test_r2.max,
         },
         "individual_fold_metrics": ensemble_results["fold_metrics"],
         "total_test_samples": ensemble_results["total_test_samples"],
-        "used_pretrained": kfold_result.used_pretrained,
+        "used_pretrained": False,
     }
     
     with open(kfold_metrics_path, "w") as f:
@@ -322,9 +347,10 @@ def create_kfold_visualization_suite(
     
     print(f"K-fold visualization suite completed!")
     print(f"Report: {report_path}")
-    print(f"Plots: {list(plot_paths.values())}")
-    print(f"Ensemble MAE: {parity_metrics['mae']:.3f} ± {kfold_result.test_mae.std:.3f}")
-    print(f"Ensemble R²: {parity_metrics['r2']:.3f} ± {kfold_result.test_r2.std:.3f}")
+    print(f"Ensemble plots: {list(ensemble_plot_paths.values())}")
+    print(f"Individual fold plots created in subfolders")
+    print(f"Ensemble MAE: {parity_metrics['mae']:.3f} ± {kfold_eval_result.test_mae.std:.3f}")
+    print(f"Ensemble R²: {parity_metrics['r2']:.3f} ± {kfold_eval_result.test_r2.std:.3f}")
     
     return results
 
@@ -459,17 +485,31 @@ def _format_fold_performance_table(fold_metrics: List[Dict[str, Any]]) -> str:
     return table
 
 
-def _format_kfold_plot_descriptions(plot_paths: Dict[str, Path]) -> str:
+def _format_kfold_plot_descriptions(plot_paths: Dict[str, Any]) -> str:
     """Format plot descriptions for k-fold report."""
     descriptions = []
     
-    if "parity_plot" in plot_paths:
-        descriptions.append(f"- **`{plot_paths['parity_plot'].name}`:**\n  - Shows ensemble predictions vs. true values across all test folds. Each point represents a sample predicted by a model that never saw that sample during training, providing unbiased performance assessment.")
+    # Ensemble plots
+    if "ensemble" in plot_paths:
+        ensemble_paths = plot_paths["ensemble"]
+        descriptions.append("### Ensemble Plots (All Folds Combined)")
+        
+        if "ensemble_parity_plot" in ensemble_paths:
+            descriptions.append(f"- **`{ensemble_paths['ensemble_parity_plot'].name}`:**\n  - Shows ensemble predictions vs. true values across all test folds. Each point represents a sample predicted by a model that never saw that sample during training, providing unbiased performance assessment.")
+        
+        if "ensemble_error_distribution" in ensemble_paths:
+            descriptions.append(f"- **`{ensemble_paths['ensemble_error_distribution'].name}`:**\n  - Distribution of ensemble prediction errors. A well-centered distribution indicates unbiased predictions across the entire dataset.")
+        
+        if "ensemble_tsne_embeddings" in ensemble_paths:
+            descriptions.append(f"- **`{ensemble_paths['ensemble_tsne_embeddings'].name}`:**\n  - t-SNE visualization of learned embeddings from ensemble models, colored by true values. Smooth gradients indicate that models have learned meaningful chemical representations.")
     
-    if "error_distribution" in plot_paths:
-        descriptions.append(f"- **`{plot_paths['error_distribution'].name}`:**\n  - Distribution of ensemble prediction errors. A well-centered distribution indicates unbiased predictions across the entire dataset.")
-    
-    if "tsne_embeddings" in plot_paths:
-        descriptions.append(f"- **`{plot_paths['tsne_embeddings'].name}`:**\n  - t-SNE visualization of learned embeddings from ensemble models, colored by true Tg values. Smooth gradients indicate that models have learned meaningful chemical representations.")
+    # Individual fold plots
+    if "individual_folds" in plot_paths:
+        fold_paths = plot_paths["individual_folds"]
+        descriptions.append("\n### Individual Fold Plots")
+        descriptions.append(f"Individual performance plots for each of the {len(fold_paths)} folds are available in their respective subfolders:")
+        
+        for fold_name in sorted(fold_paths.keys()):
+            descriptions.append(f"- **`{fold_name}/`** - Contains parity plots, error distributions, and t-SNE visualizations for {fold_name} test data only")
     
     return "\n\n".join(descriptions)

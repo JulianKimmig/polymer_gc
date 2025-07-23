@@ -109,7 +109,7 @@ def create_parity_plot(
     
     # Add metrics text
     if show_metrics:
-        metrics_text = f"R²={r2:.2f}\\nMAE={mae:.2f}"
+        metrics_text = f"R²={r2:.2f}\nMAE={mae:.2f}"
         plt.text(
             0.95, 0.05, metrics_text,
             transform=plt.gca().transAxes,

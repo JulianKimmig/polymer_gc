@@ -18,7 +18,7 @@ from polymer_gc.data.database import SessionManager
 from polymer_gc.data.dataset import Dataset
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, PrivateAttr
 from polymer_gc.model.base import PolyGCBaseModel
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
@@ -35,13 +35,57 @@ from ..visualization.kfold_analysis import create_kfold_visualization_suite
 class SplitEvalResult(BaseModel):
     """Evaluation results for a single data split (train/val/test)."""
     split_name: str  # "train", "val", or "test"
-    y_true: List[float]
-    y_pred: List[float] 
-    embeddings: List[List[float]]  # Model embeddings for each sample
     mae: float
     mse: float
     r2: float
     num_samples: int
+    
+    # Large arrays stored as private attributes (not serialized to JSON)
+    _y_true: List[float] = PrivateAttr()
+    _y_pred: List[float] = PrivateAttr()
+    _embeddings: List[List[float]] = PrivateAttr()
+    
+    def __init__(self, y_true: List[float], y_pred: List[float], embeddings: List[List[float]], **data):
+        super().__init__(**data)
+        self._y_true = y_true
+        self._y_pred = y_pred
+        self._embeddings = embeddings
+    
+    @property
+    def y_true(self) -> List[float]:
+        return self._y_true
+    
+    @property
+    def y_pred(self) -> List[float]:
+        return self._y_pred
+    
+    @property
+    def embeddings(self) -> List[List[float]]:
+        return self._embeddings
+    
+    def save_arrays(self, output_dir: Path, fold_id: str = "") -> Dict[str, Path]:
+        """Save large arrays as separate numpy files."""
+        import numpy as np
+        
+        output_dir = Path(output_dir)
+        output_dir.mkdir(exist_ok=True, parents=True)
+        
+        prefix = f"{fold_id}_{self.split_name}" if fold_id else self.split_name
+        
+        # Save arrays
+        y_true_path = output_dir / f"{prefix}_y_true.npy"
+        y_pred_path = output_dir / f"{prefix}_y_pred.npy"
+        embeddings_path = output_dir / f"{prefix}_embeddings.npy"
+        
+        np.save(y_true_path, np.array(self._y_true))
+        np.save(y_pred_path, np.array(self._y_pred))
+        np.save(embeddings_path, np.array(self._embeddings))
+        
+        return {
+            "y_true_path": y_true_path,
+            "y_pred_path": y_pred_path,
+            "embeddings_path": embeddings_path
+        }
 
 
 class FoldEvalResult(BaseModel):
@@ -411,6 +455,18 @@ def evaluation_pipeline(
         
         # Save individual fold results
         fold_result_path = output_dir / f"fold_eval_result_{fold_result.fold}.json"
+        
+        # Save large arrays separately
+        arrays_dir = output_dir / "arrays"
+        arrays_dir.mkdir(exist_ok=True, parents=True)
+        
+        if fold_result.model_loaded_successfully:
+            fold_id = f"fold_{fold_result.fold}"
+            fold_result.train_result.save_arrays(arrays_dir, fold_id)
+            fold_result.val_result.save_arrays(arrays_dir, fold_id)
+            fold_result.test_result.save_arrays(arrays_dir, fold_id)
+        
+        # Save metadata (without large arrays)
         with open(fold_result_path, "w") as f:
             json.dump(fold_result.model_dump(), f, indent=2, sort_keys=True)
     
@@ -485,44 +541,11 @@ def evaluation_pipeline(
         print("CREATING K-FOLD VISUALIZATION SUITE")
         print("="*50)
         
-        # Convert KFoldEvalResult to KFoldResult format for visualization
-        # We need to create a compatible format for the visualization functions
-        from .training import TrainingResult, KFoldResult
-        
-        # Create TrainingResult objects for each fold
-        training_results = []
-        for eval_result in kfold_eval_result.results:
-            if eval_result.model_loaded_successfully:
-                # Use test metrics as proxy for the training result format
-                training_result = TrainingResult(
-                    fold=eval_result.fold,
-                    test_mae=eval_result.test_result.mae,
-                    test_mse=eval_result.test_result.mse,
-                    test_r2=eval_result.test_result.r2,
-                    epochs_trained=100,  # Placeholder
-                    best_epoch=90,       # Placeholder
-                    model_dir=Path(eval_result.model_dir)
-                )
-                training_results.append(training_result)
-        
-        # Create KFoldResult for visualization compatibility
-        visualization_kfold_result = KFoldResult(
-            results=training_results,
-            test_mae=kfold_eval_result.test_mae,
-            test_mse=kfold_eval_result.test_mse,
-            test_r2=kfold_eval_result.test_r2,
-            k_folds=kfold_eval_result.k_folds,
-            config=kfold_eval_result.config,
-            used_pretrained=False  # Will be inferred if needed
-        )
-        
-        # Create visualization suite
+        # Create visualization suite using evaluation results directly
         visualization_results = create_kfold_visualization_suite(
-            kfold_result=visualization_kfold_result,
-            all_graph_data=all_graph_data,
+            kfold_eval_result=kfold_eval_result,
             dataset_name=ds_name,
             output_dir=output_dir / "visualizations",
-            device=torch.device(device) if device else None,
             create_tsne=True,
             property_name=property_name,
             unit=unit

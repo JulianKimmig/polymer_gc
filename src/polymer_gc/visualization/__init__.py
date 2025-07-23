@@ -17,7 +17,7 @@ from .utils import (
     prepare_training_stats,
 )
 from .kfold_analysis import (
-    create_kfold_ensemble_predictions,
+    create_kfold_ensemble_predictions_from_eval_results,
     create_kfold_visualization_suite,
 )
 
@@ -29,6 +29,6 @@ __all__ = [
     "calculate_comprehensive_metrics",
     "prepare_data_stats",
     "prepare_training_stats",
-    "create_kfold_ensemble_predictions",
+    "create_kfold_ensemble_predictions_from_eval_results",
     "create_kfold_visualization_suite",
 ]
