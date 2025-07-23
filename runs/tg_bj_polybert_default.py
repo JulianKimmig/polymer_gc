@@ -20,7 +20,7 @@ basefolder = Path(__file__).parent / "results" / Path(__file__).stem
 db_path = Path(__file__).parent / "database.db"
 fill_db_jb(
     db_path=db_path,
-    ds_dataset_namename="tg_jablonka_polybert",
+    dataset_name="tg_jablonka_polybert",
 )
 fill_db_bj(
     db_path=db_path,
