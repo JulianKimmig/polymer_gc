@@ -150,6 +150,8 @@ def create_kfold_visualization_suite(
     device: Optional[torch.device] = None,
     create_tsne: bool = True,
     batch_size: int = 32,
+    property_name: str = "Values",
+    unit: str = "",
 ) -> Dict[str, Any]:
     """
     Create comprehensive visualization suite for k-fold cross-validation results.
@@ -162,6 +164,8 @@ def create_kfold_visualization_suite(
         device: Device to run inference on
         create_tsne: Whether to create t-SNE visualization
         batch_size: Batch size for inference
+        property_name: Name of the property being predicted (e.g., "Tg", "Density")
+        unit: Unit of measurement (e.g., "K", "g/cm³")
         
     Returns:
         Dictionary containing all visualization results and file paths
@@ -192,7 +196,9 @@ def create_kfold_visualization_suite(
         y_true=y_true,
         y_pred=y_pred,
         output_path=parity_path,
-        title=f"K-Fold Ensemble Predictions ({dataset_name})"
+        title=f"K-Fold Ensemble Predictions ({dataset_name})",
+        property_name=property_name,
+        unit=unit
     )
     parity_fig.close()
     plot_paths["parity_plot"] = parity_path
@@ -203,7 +209,9 @@ def create_kfold_visualization_suite(
         y_true=y_true,
         y_pred=y_pred,
         output_path=error_path,
-        title=f"K-Fold Prediction Errors ({dataset_name})"
+        title=f"K-Fold {property_name} Prediction Errors ({dataset_name})",
+        property_name=property_name,
+        unit=unit
     )
     error_fig.close()
     plot_paths["error_distribution"] = error_path
@@ -215,7 +223,9 @@ def create_kfold_visualization_suite(
             embeddings=embeddings,
             y_true=y_true,
             output_path=tsne_path,
-            title=f"K-Fold Ensemble Embeddings ({dataset_name})"
+            title=f"K-Fold Ensemble {property_name} Embeddings ({dataset_name})",
+            property_name=property_name,
+            unit=unit
         )
         tsne_fig.close()
         plot_paths["tsne_embeddings"] = tsne_path
