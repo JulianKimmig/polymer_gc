@@ -22,7 +22,7 @@ basefolder = Path(__file__).parent / "results" / Path(__file__).stem
 db_path = Path(__file__).parent / "database.db"
 fill_db_jb(
     db_path=db_path,
-    ds_name="tg_jablonka_fp",
+    dataset_name="tg_jablonka_fp",
     pg_dataset_config=PgDatasetConfig(
         embedding="RDKitFP",
         targets=["Tg"],
@@ -30,7 +30,7 @@ fill_db_jb(
 )
 fill_db_bj(
     db_path=db_path,
-    ds_name="tg_bayreuth_jena_fp",
+    dataset_name="tg_bayreuth_jena_fp",
     pg_dataset_config=PgDatasetConfig(
         embedding="RDKitFP",
         targets=["Tg"],
@@ -38,7 +38,7 @@ fill_db_bj(
 )
 fill_db_bj(
     db_path=db_path,
-    ds_name="tg_bayreuth_jena_fp_no_flory_fox",
+    dataset_name="tg_bayreuth_jena_fp_no_flory_fox",
     include_flory_fox=False,
     pg_dataset_config=PgDatasetConfig(
         embedding="RDKitFP",
