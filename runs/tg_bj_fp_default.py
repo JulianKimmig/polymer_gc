@@ -61,7 +61,7 @@ model_conf=PolyGCBaseModel.ModelConfig(
 
 
 res_jb = taining_pipeline(
-    ds_name="tg_jablonka",
+    ds_name="tg_jablonka_fp",
     result_dir=basefolder /"jb",
     conf=TrainingConf(
         batch_size=32,
@@ -73,7 +73,7 @@ res_jb = taining_pipeline(
 )
 
 eval_result_jb, eval_data_jb = evaluation_pipeline(
-    ds_name="tg_jablonka",
+    ds_name="tg_jablonka_fp",
     trained_models_dir=basefolder / "jb",
     db_path=db_path,
     reduce_identical=False,
@@ -83,7 +83,7 @@ eval_result_jb, eval_data_jb = evaluation_pipeline(
 )
 
 res_wflory = taining_pipeline(
-    ds_name="tg_bayreuth_jena",
+    ds_name="tg_bayreuth_jena_fp",
     result_dir=basefolder /"wflory",
     pretrained_model_dir=basefolder /"jb",
     conf=TrainingConf(
@@ -96,7 +96,7 @@ res_wflory = taining_pipeline(
 )
 
 eval_result_wflory, eval_data_wflory = evaluation_pipeline(
-    ds_name="tg_bayreuth_jena",
+    ds_name="tg_bayreuth_jena_fp",
     trained_models_dir=basefolder / "wflory",
     db_path=db_path,
     k_folds=5,
@@ -108,7 +108,7 @@ eval_result_wflory, eval_data_wflory = evaluation_pipeline(
 )
 
 res = taining_pipeline(
-    ds_name="tg_bayreuth_jena_no_flory_fox",
+    ds_name="tg_bayreuth_jena_fp_no_flory_fox",
     result_dir=basefolder /"fin",
     pretrained_model_dir=basefolder /"wflory",
     conf=TrainingConf(
@@ -121,7 +121,7 @@ res = taining_pipeline(
 )
 
 eval_result_fin, eval_data_fin = evaluation_pipeline(
-    ds_name="tg_bayreuth_jena_no_flory_fox",
+    ds_name="tg_bayreuth_jena_fp_no_flory_fox",
     trained_models_dir=basefolder / "fin",
     db_path=db_path,
     k_folds=5,
