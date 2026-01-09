@@ -1,3 +1,4 @@
+import concurrent
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 import json
@@ -125,7 +126,14 @@ class PolymerMaker:
         # )
 
         sim = Simulation(sim_config)
-        res = sim.run()
+        # run in new thread and cancel if timeout
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(sim.run)
+            try:
+                res = future.result(timeout=30)
+            except concurrent.futures.TimeoutError:
+                future.cancel()
+                raise ValueError("Simulation timed out")
 
         polys = res.get_polymers()
         # print("PMW:",[p.molecular_weight for p in polys])
