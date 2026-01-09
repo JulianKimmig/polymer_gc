@@ -165,3 +165,40 @@ class SimSEC(SECDataBase):
 
         raw = pd.DataFrame({cls.DEFAULT_VOLUME_COLUMN: vol_axis, "signal": signal})
         return cls(raw_data=raw, calibration_params=calibration_params)
+
+
+def make_sec(
+    mn: float,
+    mw: float,
+    random_state: int = 0,
+    max_sec_tries: int = 50,
+    tol: float = 0.005,
+    max_tol: float = 0.05,
+    tol_step: float = 0.005,
+    n_points: int = 500,
+    n_points_detect: int = 1000,
+    **kwargs,
+):
+    rs = random_state
+    while True:
+        try:
+            for i in range(max_sec_tries):
+                rs += 1
+                try:
+                    sec = SimSEC.from_mn_mw(
+                        mn,
+                        mw,
+                        random_state=rs,
+                        tol=tol,
+                        n_points=n_points,
+                        n_points_detect=n_points_detect,
+                        **kwargs,
+                    )
+                    return sec
+                except ValueError:
+                    if i >= max_sec_tries - 1:
+                        raise
+        except ValueError:
+            if tol > max_tol:
+                raise
+            tol += tol_step

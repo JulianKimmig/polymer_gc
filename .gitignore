@@ -11,3 +11,6 @@ wheels/
 /dev
 
 datasets/*/*/data
+notebooks/data/*
+notebooks/database.db
+
