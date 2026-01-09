@@ -25,7 +25,6 @@ dependencies = [
     "secanalysis>=0.1.1",
     "sqlalchemy>=2.0.41",
     "sqlmodel>=0.0.24",
-    "sync>=1.0.0",
     "torch-geometric>=2.6.1",
     "tqdm>=4.67.1",
     "umap-learn>=0.5.7",

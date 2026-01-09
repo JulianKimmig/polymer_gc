@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Union
-from sqlmodel import Column, JSON, Field, Relationship, UniqueConstraint, select
+from sqlmodel import Column, JSON, Field, Relationship, UniqueConstraint, select, delete
 from pydantic import model_validator
 from polymcsim.schemas import SimulationInput
 from .basemodels.core import Base
@@ -70,8 +70,17 @@ class DatasetItem(Base, table=True):
         sa_column=Column(JSON)
     )  # {"n_monomers": 2, "monomer_ratios": [0.5, 0.5], "reactivity_ratios": [1.0, 1.0]}
 
+
+    def delete(self):
+        # Delete related GraphDatasetItemLink entries first
+        GraphDatasetItemLink.delete_by_dataset_item(self)
+
+        # Delete the item itself - SQLAlchemy will automatically handle
+        # the relationship cleanup (removing from dataset.items)
+        super().delete()
+    
     @property
-    def sec(self):
+    def sec(self)->Optional[SECEntry]:
         session = SessionRegistry.get_session()
         if self.sec_id is None:
             return None
@@ -80,6 +89,14 @@ class DatasetItem(Base, table=True):
     @sec.setter
     def sec(self, value: SECEntry):
         self.sec_id = value.id
+
+    @property
+    def graphs(self):
+        return GraphDatasetItemLink.get_graphs(self)
+
+    @property
+    def structrures(self)->Dict[str,SQLStructureModel]:
+        return {k: self.structuremapentry(k) for k in self.structure_map.keys()}
 
     def structuremapentry(self, key):
         if not hasattr(self, "_resolved_structure_map"):
@@ -350,6 +367,17 @@ class GraphDatasetItemLink(Base, table=True):
         session.add(link)
         session.commit()
         return link
+
+    @classmethod
+    def delete_by_dataset_item(cls, dataset_item: DatasetItem):
+        session = SessionRegistry.get_session()
+        if session is None:
+            raise ValueError("No session found")
+        # Execute delete statement - delete() doesn't return rows, so no need to call .all()
+        session.exec(
+            delete(cls).where(cls.dataset_item_id == dataset_item.id)
+        )
+        session.commit()
 
     @classmethod
     def get_graphs(cls, dataset_item: DatasetItem) -> List[ReusableGraphEntry]:

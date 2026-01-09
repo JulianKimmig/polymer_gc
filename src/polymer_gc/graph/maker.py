@@ -294,7 +294,12 @@ class PolymerMaker:
         entries = DatasetItem.all(dataset=self.dataset, entry_type=self.graph_name)
         for entry in entries:
             # make sure all graphs are created for each entry
-            _ = self._get_entry_graphs(entry,graphs_per_polymer)
+            try:
+                _ = self._get_entry_graphs(entry,graphs_per_polymer)
+            except Exception as e:
+                # delete entry
+                entry.delete()
+                continue
         if len(entries) >= n_polymers:
             return entries
 
@@ -432,10 +437,8 @@ class HomopolymerMixin(GradientMixin):
     structure_one_hot_target = structure_one_hot_targets.index("homopolymer")
 
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.max_monomers = 1
-        self.min_monomers = 1
+    def __init__(self, *args,max_monomers: int = 1,min_monomers: int = 1, **kwargs):
+        super().__init__(*args,max_monomers=1,min_monomers=1, **kwargs)
 
 
 class RandomCopolymerMixin(GradientMixin):

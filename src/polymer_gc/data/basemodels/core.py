@@ -91,3 +91,9 @@ class Base(SQLModel):
             session.commit()
             session.refresh(instance)
         return instance
+
+    def delete(self):
+        session = SessionRegistry.get_session()
+        session.delete(self)
+        session.commit()
+        return self
